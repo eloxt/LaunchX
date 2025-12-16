@@ -171,9 +171,7 @@ struct ResultsListView: View {
             // Initial height 200 ensures there is space to render and measure content
             .frame(height: contentHeight > 0 ? min(contentHeight, 350) : 200)
             .onChange(of: viewModel.selectedIndex) { newIndex in
-                withAnimation {
-                    proxy.scrollTo(newIndex, anchor: .center)
-                }
+                proxy.scrollTo(newIndex, anchor: .center)
             }
         }
     }
