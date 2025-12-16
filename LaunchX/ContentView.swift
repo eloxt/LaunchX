@@ -5,6 +5,7 @@ struct ContentView: View {
     @StateObject private var viewModel = SearchViewModel()
     @FocusState private var isFocused: Bool
     @State private var window: NSWindow?
+    @AppStorage("defaultWindowMode") private var windowMode: String = "simple"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,7 +46,11 @@ struct ContentView: View {
                 }
             } else {
                 Divider()
-                EmptyStateView()
+                if windowMode == "full" {
+                    FullModeStartView()
+                } else {
+                    EmptyStateView()
+                }
             }
         }
         .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
@@ -226,6 +231,64 @@ struct EmptyStateView: View {
                 )
         }
         .padding(20)
+    }
+}
+
+struct FullModeStartView: View {
+    let commonApps: [(name: String, path: String)] = [
+        ("Finder", "/System/Library/CoreServices/Finder.app"),
+        ("Safari", "/Applications/Safari.app"),
+        ("Terminal", "/System/Applications/Utilities/Terminal.app"),
+        ("Notes", "/System/Applications/Notes.app"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Quick Access")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 20)
+                .padding(.top, 15)
+
+            HStack(spacing: 24) {
+                ForEach(commonApps, id: \.path) { app in
+                    Button(action: {
+                        let url = URL(fileURLWithPath: app.path)
+                        NSWorkspace.shared.open(url)
+                        PanelManager.shared.hidePanel()
+                    }) {
+                        VStack(spacing: 8) {
+                            if FileManager.default.fileExists(atPath: app.path) {
+                                Image(nsImage: NSWorkspace.shared.icon(forFile: app.path))
+                                    .resizable()
+                                    .frame(width: 48, height: 48)
+                            } else {
+                                Image(systemName: "questionmark.app")
+                                    .resizable()
+                                    .frame(width: 48, height: 48)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Text(app.name)
+                                .font(.caption)
+                                .foregroundColor(.primary)
+                        }
+                        .frame(width: 60)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isHovering in
+                        if isHovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
     }
 }
 
