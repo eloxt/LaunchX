@@ -1,4 +1,5 @@
 import Carbon.HIToolbox
+import Combine
 import SwiftUI
 
 struct ContentView: View {
@@ -6,6 +7,7 @@ struct ContentView: View {
     @FocusState private var isFocused: Bool
     @State private var window: NSWindow?
     @AppStorage("defaultWindowMode") private var windowMode: String = "simple"
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(spacing: 0) {
@@ -79,6 +81,9 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 isFocused = true
             }
+        }
+        .onReceive(PanelManager.shared.openSettingsPublisher) { _ in
+            openSettings()
         }
     }
 

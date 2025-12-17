@@ -139,6 +139,13 @@ struct GeneralSettingsView: View {
                     .padding(.top, 5)
                 }
             }
+
+            Divider()
+                .padding(.vertical, 10)
+
+            Section {
+                PermissionSettingsView()
+            }
         }
         .padding(20)
     }

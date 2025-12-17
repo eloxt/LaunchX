@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 @main
@@ -32,6 +33,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         setupStatusItem()
+        checkPermissions()
+    }
+
+    func checkPermissions() {
+        let isFirstLaunch = !UserDefaults.standard.bool(forKey: "hasLaunchedBefore")
+
+        if isFirstLaunch {
+            UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
+            // Open settings on first launch
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.openSettings()
+            }
+            return
+        }
+
+        // Trigger permission checks
+        let service = PermissionService.shared
+
+        // Delay to allow async checks to complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // If accessibility is missing, prompt user
+            if !service.isAccessibilityGranted {
+                self.openSettings()
+            }
+        }
     }
 
     func setupStatusItem() {
@@ -58,7 +84,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func openSettings() {
         PanelManager.shared.hidePanel(deactivateApp: false)
-        NSApp.sendAction(Selector("showSettingsWindow:"), to: nil, from: nil)
+        PanelManager.shared.openSettingsPublisher.send()
         NSApp.activate(ignoringOtherApps: true)
     }
 

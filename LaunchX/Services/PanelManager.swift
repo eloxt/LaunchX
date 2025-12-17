@@ -8,6 +8,8 @@ class PanelManager: ObservableObject {
     // Add @Published to satisfy ObservableObject protocol and allow UI observation
     @Published var isPanelVisible: Bool = false
 
+    let openSettingsPublisher = PassthroughSubject<Void, Never>()
+
     private var panel: FloatingPanel!
 
     private init() {
