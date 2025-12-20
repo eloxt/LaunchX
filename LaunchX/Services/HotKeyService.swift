@@ -16,45 +16,55 @@ class HotKeyService: ObservableObject {
     var onHotKeyPressed: (() -> Void)?
 
     private var hotKeyRef: EventHotKeyRef?
-    private let hotKeySignature = "LnHX"  // Unique signature for our app
+    private let hotKeySignature: OSType
     private let hotKeyId: UInt32 = 1
     private var eventHandlerRef: EventHandlerRef?
 
-    // Published properties to allow UI binding/observation if needed
+    // Published properties to allow UI binding/observation
     @Published var currentKeyCode: UInt32 = UInt32(kVK_Space)
     @Published var currentModifiers: UInt32 = UInt32(optionKey)
     @Published var isEnabled: Bool = true
 
-    private init() {}
+    private init() {
+        // Create signature "LnHX"
+        let c1 = UInt32(byteAt("L", 0))
+        let c2 = UInt32(byteAt("n", 0))
+        let c3 = UInt32(byteAt("H", 0))
+        let c4 = UInt32(byteAt("X", 0))
+
+        self.hotKeySignature = OSType((c1 << 24) | (c2 << 16) | (c3 << 8) | c4)
+    }
 
     func setupGlobalHotKey() {
         // Install event handler only once
-        if eventHandlerRef == nil {
-            var eventType = EventTypeSpec(
-                eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        guard eventHandlerRef == nil else { return }
 
-            let status = InstallEventHandler(
-                GetApplicationEventTarget(),
-                globalHotKeyHandler,
-                1,
-                &eventType,
-                nil,
-                &eventHandlerRef)
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
 
-            if status != noErr {
-                print("Error installing event handler: \(status)")
-                return
-            }
+        let status = InstallEventHandler(
+            GetApplicationEventTarget(),
+            globalHotKeyHandler,
+            1,
+            &eventType,
+            nil,
+            &eventHandlerRef
+        )
+
+        if status != noErr {
+            print("HotKeyService: Failed to install event handler. Status: \(status)")
+            return
         }
 
-        // Initial registration (try loading from UserDefaults or use default)
+        // Load saved key or use default (Option + Space)
         let savedKeyCode = UserDefaults.standard.object(forKey: "hotKeyKeyCode") as? Int
         let savedModifiers = UserDefaults.standard.object(forKey: "hotKeyModifiers") as? Int
 
         if let key = savedKeyCode, let mods = savedModifiers {
             registerHotKey(keyCode: UInt32(key), modifiers: UInt32(mods))
         } else {
-            // Default: Option + Space
             registerHotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey))
         }
     }
@@ -69,11 +79,11 @@ class HotKeyService: ObservableObject {
         self.currentKeyCode = keyCode
         self.currentModifiers = modifiers
 
-        // Save to UserDefaults
+        // Save persistence
         UserDefaults.standard.set(Int(keyCode), forKey: "hotKeyKeyCode")
         UserDefaults.standard.set(Int(modifiers), forKey: "hotKeyModifiers")
 
-        let hotKeyID = EventHotKeyID(signature: OSType(be32(hotKeySignature)), id: hotKeyId)
+        let hotKeyID = EventHotKeyID(signature: hotKeySignature, id: hotKeyId)
 
         let registerStatus = RegisterEventHotKey(
             keyCode,
@@ -81,15 +91,63 @@ class HotKeyService: ObservableObject {
             hotKeyID,
             GetApplicationEventTarget(),
             0,
-            &hotKeyRef)
+            &hotKeyRef
+        )
 
         if registerStatus != noErr {
-            print("Error registering hotkey: \(registerStatus)")
+            print("HotKeyService: Failed to register hotkey. Status: \(registerStatus)")
         } else {
-            print("Global HotKey registered successfully: Code \(keyCode), Mods \(modifiers)")
+            print("HotKeyService: Registered Global HotKey (Code: \(keyCode), Mods: \(modifiers))")
         }
     }
 
+    // Internal handler called by the C function
+    fileprivate func handleEvent(_ event: EventRef?) -> OSStatus {
+        guard let event = event else { return OSStatus(eventNotHandledErr) }
+
+        var hotKeyID = EventHotKeyID()
+        let error = GetEventParameter(
+            event,
+            EventParamName(kEventParamDirectObject),
+            EventParamType(typeEventHotKeyID),
+            nil,
+            MemoryLayout<EventHotKeyID>.size,
+            nil,
+            &hotKeyID
+        )
+
+        if error == noErr {
+            // Verify signature and ID to ensure it's our hotkey
+            if hotKeyID.signature == hotKeySignature && hotKeyID.id == hotKeyId {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onHotKeyPressed?()
+                }
+                return noErr
+            }
+        }
+
+        return OSStatus(eventNotHandledErr)
+    }
+
+    deinit {
+        if let hotKeyRef = hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+        }
+        if let eventHandlerRef = eventHandlerRef {
+            RemoveEventHandler(eventHandlerRef)
+        }
+    }
+}
+
+// MARK: - Helpers
+
+private func byteAt(_ string: String, _ index: Int) -> UInt8 {
+    let array = Array(string.utf8)
+    guard index < array.count else { return 0 }
+    return array[index]
+}
+
+extension HotKeyService {
     // Helper to convert NSEvent.ModifierFlags to Carbon modifiers
     static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
         var carbonFlags: UInt32 = 0
@@ -108,20 +166,21 @@ class HotKeyService: ObservableObject {
         if modifiers & UInt32(shiftKey) != 0 { string += "⇧" }
         if modifiers & UInt32(cmdKey) != 0 { string += "⌘" }
 
-        // Simple key code to string mapping (incomplete, but covers basics)
-        // In a real app, use TISInputSource or similar for accurate mapping
         string += keyString(for: keyCode)
         return string
     }
 
     private static func keyString(for keyCode: UInt32) -> String {
+        // TISInputSource would be more accurate for localized keyboards,
+        // but this manual mapping covers standard US ANSI layout.
         switch Int(keyCode) {
         case kVK_Space: return "Space"
         case kVK_Return: return "↩"
         case kVK_Tab: return "⇥"
         case kVK_Delete: return "⌫"
         case kVK_Escape: return "Esc"
-        // Letters (ANSI)
+
+        // ANSI Letters
         case kVK_ANSI_A: return "A"
         case kVK_ANSI_B: return "B"
         case kVK_ANSI_C: return "C"
@@ -148,7 +207,8 @@ class HotKeyService: ObservableObject {
         case kVK_ANSI_X: return "X"
         case kVK_ANSI_Y: return "Y"
         case kVK_ANSI_Z: return "Z"
-        // Numbers
+
+        // ANSI Numbers
         case kVK_ANSI_0: return "0"
         case kVK_ANSI_1: return "1"
         case kVK_ANSI_2: return "2"
@@ -159,49 +219,35 @@ class HotKeyService: ObservableObject {
         case kVK_ANSI_7: return "7"
         case kVK_ANSI_8: return "8"
         case kVK_ANSI_9: return "9"
-        default: return "?"  // Fallback
-        }
-    }
 
-    // Internal handler called by the C function
-    fileprivate func handleEvent(_ event: EventRef?) -> OSStatus {
-        guard let event = event else { return OSStatus(eventNotHandledErr) }
+        // Common Symbols
+        case kVK_ANSI_Minus: return "-"
+        case kVK_ANSI_Equal: return "="
+        case kVK_ANSI_LeftBracket: return "["
+        case kVK_ANSI_RightBracket: return "]"
+        case kVK_ANSI_Quote: return "'"
+        case kVK_ANSI_Semicolon: return ";"
+        case kVK_ANSI_Backslash: return "\\"
+        case kVK_ANSI_Comma: return ","
+        case kVK_ANSI_Period: return "."
+        case kVK_ANSI_Slash: return "/"
+        case kVK_ANSI_Grave: return "`"
 
-        var hotKeyID = EventHotKeyID()
-        let error = GetEventParameter(
-            event,
-            EventParamName(kEventParamDirectObject),
-            EventParamType(typeEventHotKeyID),
-            nil,
-            MemoryLayout<EventHotKeyID>.size,
-            nil,
-            &hotKeyID)
+        // Function Keys
+        case kVK_F1: return "F1"
+        case kVK_F2: return "F2"
+        case kVK_F3: return "F3"
+        case kVK_F4: return "F4"
+        case kVK_F5: return "F5"
+        case kVK_F6: return "F6"
+        case kVK_F7: return "F7"
+        case kVK_F8: return "F8"
+        case kVK_F9: return "F9"
+        case kVK_F10: return "F10"
+        case kVK_F11: return "F11"
+        case kVK_F12: return "F12"
 
-        if error == noErr {
-            // Verify signature and ID
-            if hotKeyID.signature == OSType(be32(hotKeySignature)) && hotKeyID.id == hotKeyId {
-                DispatchQueue.main.async {
-                    self.onHotKeyPressed?()
-                }
-                return noErr
-            }
-        }
-
-        return OSStatus(eventNotHandledErr)
-    }
-
-    // Helper to convert 4-char string to OSType (UInt32)
-    private func be32(_ string: String) -> UInt32 {
-        var result: UInt32 = 0
-        for char in string.utf8 {
-            result = result << 8 + UInt32(char)
-        }
-        return result
-    }
-
-    deinit {
-        if let hotKeyRef = hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
+        default: return "?"
         }
     }
 }

@@ -66,7 +66,7 @@ struct ContentView: View {
         .background(WindowAccessor(window: $window))
         .background(
             GeometryReader { geo in
-                Color.clear.onChange(of: geo.size) { newSize in
+                Color.clear.onChange(of: geo.size) { _, newSize in
                     resizeWindow(to: newSize)
                 }
             }
@@ -171,7 +171,7 @@ struct ResultsListView: View {
                             .onAppear {
                                 contentHeight = geo.size.height
                             }
-                            .onChange(of: geo.size.height) { newHeight in
+                            .onChange(of: geo.size.height) { _, newHeight in
                                 contentHeight = newHeight
                             }
                     }
@@ -180,7 +180,7 @@ struct ResultsListView: View {
             // Dynamic height: fit content but cap at 350
             // Initial height 200 ensures there is space to render and measure content
             .frame(height: contentHeight > 0 ? min(contentHeight, 350) : 200)
-            .onChange(of: viewModel.selectedIndex) { newIndex in
+            .onChange(of: viewModel.selectedIndex) { _, newIndex in
                 proxy.scrollTo(newIndex, anchor: .center)
             }
         }

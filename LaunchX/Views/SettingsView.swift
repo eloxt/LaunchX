@@ -42,7 +42,7 @@ struct GeneralSettingsView: View {
                 // 1. Launch at Login
                 Toggle("Open at Login:", isOn: $isLaunchAtLoginEnabled)
                     .toggleStyle(CheckboxToggleStyle())
-                    .onChange(of: isLaunchAtLoginEnabled) { newValue in
+                    .onChange(of: isLaunchAtLoginEnabled) { _, newValue in
                         updateLaunchAtLogin(enabled: newValue)
                     }
                     .onAppear {
@@ -216,7 +216,7 @@ struct HotKeyRecorderView: View {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(isRecording ? Color.blue : Color.clear, lineWidth: 2)
         )
-        .onChange(of: isRecording) { recording in
+        .onChange(of: isRecording) { _, recording in
             if recording {
                 startRecording()
             } else {
