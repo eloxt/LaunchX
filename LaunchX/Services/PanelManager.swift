@@ -2,7 +2,7 @@ import Cocoa
 import Combine
 import SwiftUI
 
-class PanelManager: ObservableObject {
+class PanelManager: NSObject, ObservableObject, NSWindowDelegate {
     static let shared = PanelManager()
 
     // Add @Published to satisfy ObservableObject protocol and allow UI observation
@@ -12,7 +12,9 @@ class PanelManager: ObservableObject {
 
     private var panel: FloatingPanel!
 
-    private init() {
+    private override init() {
+        super.init()
+
         // Define standard size for the search window
         let panelSize = NSSize(width: 650, height: 500)
         let screenRect = NSScreen.main?.frame ?? .zero
@@ -23,6 +25,9 @@ class PanelManager: ObservableObject {
         let rect = NSRect(origin: centerOrigin, size: panelSize)
 
         self.panel = FloatingPanel(contentRect: rect)
+
+        // Set delegate to handle focus/key changes
+        self.panel.delegate = self
     }
 
     /// Embeds the SwiftUI view into the panel
@@ -71,5 +76,17 @@ class PanelManager: ObservableObject {
 
         // Update state
         isPanelVisible = false
+    }
+
+    // MARK: - NSWindowDelegate
+
+    func windowDidResignKey(_ notification: Notification) {
+        // Check if it's our panel
+        if let window = notification.object as? NSWindow, window == self.panel {
+            // Close the panel immediately when it loses focus (e.g. user clicks Settings or Desktop).
+            // We do NOT deactivate the app here, because the user might have clicked
+            // the Settings window (we want to stay active) or another app (already inactive).
+            hidePanel(deactivateApp: false)
+        }
     }
 }
