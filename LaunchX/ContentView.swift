@@ -5,8 +5,19 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var viewModel = SearchViewModel()
     @FocusState private var isFocused: Bool
+    @State private var window: NSWindow?
     @AppStorage("defaultWindowMode") private var windowMode: String = "simple"
     @Environment(\.openSettings) private var openSettings
+
+    // Determine if we should be in compact mode (search bar only)
+    private var isCompact: Bool {
+        return windowMode == "simple" && viewModel.searchText.isEmpty
+    }
+
+    // Discrete heights for stability
+    private var targetHeight: CGFloat {
+        return isCompact ? 80 : 500
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,50 +43,81 @@ struct ContentView: View {
                     )
             }
             .padding(20)
+            .frame(height: 80)  // Fix header height to match compact targetHeight
 
-            // Results or Empty State
-            if !viewModel.results.isEmpty {
+            // Content Section
+            // Only show if not in compact mode
+            if !isCompact {
                 Divider()
-                ResultsListView(viewModel: viewModel)
-            } else if !viewModel.searchText.isEmpty {
-                Divider()
-                // No results state
-                VStack {
-                    Text("No results found.")
-                        .foregroundColor(.secondary)
-                        .padding()
-                }
-                Spacer()
-            } else {
-                Divider()
-                if windowMode == "full" {
-                    FullModeStartView()
+
+                if !viewModel.results.isEmpty {
+                    ResultsListView(viewModel: viewModel)
+                } else if !viewModel.searchText.isEmpty {
+                    // Search text present but no results
+                    VStack {
+                        Text("No results found.")
+                            .foregroundColor(.secondary)
+                            .padding()
+                    }
+                    Spacer()
                 } else {
-                    EmptyStateView()
+                    // Empty search text (Full Mode)
+                    FullModeStartView()
+                    Spacer()
                 }
-                Spacer()
             }
         }
         .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
         .cornerRadius(16)
-        .frame(width: 650, height: 500)
+        .frame(width: 650, height: targetHeight)  // Apply target height
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
         )
+        // Access underlying NSWindow
+        .background(WindowAccessor(window: $window))
+        // Resize window when targetHeight changes
+        .onChange(of: targetHeight) { _, newHeight in
+            resizeWindow(to: newHeight)
+        }
         // Force focus when window appears
         .onAppear {
             DispatchQueue.main.async { isFocused = true }
+            // Ensure initial size is correct
+            if let w = window {
+                resizeWindow(to: targetHeight, for: w)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) {
             _ in
-            // Re-focus when window becomes key (e.g. triggered via HotKey)
+            // Re-focus when window becomes key
             DispatchQueue.main.async {
                 isFocused = true
             }
         }
         .onReceive(PanelManager.shared.openSettingsPublisher) { _ in
             openSettings()
+        }
+    }
+
+    private func resizeWindow(to height: CGFloat, for targetWindow: NSWindow? = nil) {
+        // Use the passed window or the captured state window
+        guard let window = targetWindow ?? self.window else { return }
+
+        let currentFrame = window.frame
+        let heightDelta = height - currentFrame.height
+
+        if abs(heightDelta) > 0.5 {
+            // Grow downwards: lower the origin.y
+            let newOriginY = currentFrame.origin.y - heightDelta
+
+            let newFrame = NSRect(
+                x: currentFrame.origin.x,
+                y: newOriginY,
+                width: currentFrame.width,
+                height: height
+            )
+            window.setFrame(newFrame, display: true, animate: true)
         }
     }
 
@@ -86,7 +128,7 @@ struct ContentView: View {
         switch Int(event.keyCode) {
         case kVK_UpArrow:
             viewModel.moveSelectionUp()
-            return nil  // Consume event so TextField doesn't move cursor awkwardly
+            return nil
         case kVK_DownArrow:
             viewModel.moveSelectionDown()
             return nil
@@ -94,7 +136,7 @@ struct ContentView: View {
             PanelManager.shared.hidePanel()
             return nil
         default:
-            // Emacs-style navigation: Ctrl+N (Down), Ctrl+P (Up)
+            // Emacs-style navigation
             if event.modifierFlags.contains(.control) {
                 switch Int(event.keyCode) {
                 case kVK_ANSI_N:
@@ -169,8 +211,9 @@ struct ResultRowView: View {
     }
 }
 
-// MARK: - Empty State
+// MARK: - Empty State / Full Mode
 
+// No longer used in Simple mode, but kept for logic structure
 struct EmptyStateView: View {
     var body: some View {
         HStack {
@@ -252,7 +295,6 @@ struct FullModeStartView: View {
 
 // MARK: - Helpers
 
-// Helper for Acrylic/Blur background
 struct VisualEffectView: NSViewRepresentable {
     var material: NSVisualEffectView.Material
     var blendingMode: NSVisualEffectView.BlendingMode
@@ -271,7 +313,6 @@ struct VisualEffectView: NSViewRepresentable {
     }
 }
 
-// Helper to intercept key events
 struct KeyEventHandler: NSViewRepresentable {
     let handler: (NSEvent) -> NSEvent?
 
@@ -289,12 +330,10 @@ struct KeyEventHandler: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            // Remove existing monitor if any
             if let monitor = monitor {
                 NSEvent.removeMonitor(monitor)
                 self.monitor = nil
             }
-
             if window != nil {
                 monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
                     [weak self] event in
@@ -309,4 +348,18 @@ struct KeyEventHandler: NSViewRepresentable {
             }
         }
     }
+}
+
+struct WindowAccessor: NSViewRepresentable {
+    @Binding var window: NSWindow?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            self.window = view.window
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
