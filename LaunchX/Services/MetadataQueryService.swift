@@ -1,15 +1,15 @@
 import Cocoa
 import Combine
-import CoreServices
+import Foundation
 
 /// A high-performance service that builds and maintains an in-memory index
-/// of files using the system Spotlight (MDQuery) API.
+/// of files using the high-level NSMetadataQuery API.
 ///
 /// Workflow:
-/// 1. Uses MDQuery to fetch metadata for configured scopes efficiently.
+/// 1. Uses NSMetadataQuery to fetch metadata for configured scopes efficiently.
 /// 2. Filters out excluded paths (e.g., node_modules) during ingestion.
 /// 3. Caches results in memory wrapped in `CachedSearchableString` for fast Pinyin matching.
-/// 4. Listens for live updates from the system index.
+/// 4. Listens for live updates from the system index via standard Notifications.
 class MetadataQueryService: ObservableObject {
     static let shared = MetadataQueryService()
 
@@ -19,11 +19,12 @@ class MetadataQueryService: ObservableObject {
     // The main in-memory index
     private(set) var indexedItems: [IndexedItem] = []
 
-    private var query: MDQuery?
-    private var searchConfig: SearchConfig = SearchConfig()
+    // Processing queue
+    private let processingQueue = DispatchQueue(
+        label: "com.launchx.metadata.processing", qos: .userInitiated)
 
-    // Serial queue for processing index updates to avoid race conditions
-    private let indexQueue = DispatchQueue(label: "com.launchx.metadata.index", qos: .utility)
+    private var query: NSMetadataQuery?
+    private var searchConfig: SearchConfig = SearchConfig()
 
     private init() {}
 
@@ -31,73 +32,67 @@ class MetadataQueryService: ObservableObject {
 
     /// Starts or restarts the indexing process based on the provided configuration.
     func startIndexing(with config: SearchConfig) {
+        // Ensure main thread for NSMetadataQuery setup
         DispatchQueue.main.async {
+            self.stopIndexing()
+
             self.searchConfig = config
             self.isIndexing = true
-        }
 
-        // Perform setup on background queue to avoid blocking/crashing main thread
-        indexQueue.async { [weak self] in
-            guard let self = self else { return }
+            let query = NSMetadataQuery()
+            self.query = query
 
-            // Stop existing query if any
-            if let query = self.query {
-                MDQueryStop(query)
-                self.query = nil
-            }
+            // Set Search Scopes
+            // NSMetadataQuery accepts an array of directory paths (Strings) or scope constants.
+            // We pass the absolute paths from the config.
+            query.searchScopes = config.searchScopes
 
-            // Construct the MDQuery string
-            // We want all items in the scope, usually Applications and user documents.
-            let queryString = "kMDItemFSName == '*'" as CFString
+            // Predicate
+            // Equivalent to: kMDItemContentTypeTree == "public.item" && kMDItemContentType != "com.apple.systempreference.prefpane"
+            let predicate = NSPredicate(
+                format:
+                    "%K == 'public.item' AND %K != 'com.apple.systempreference.prefpane'",
+                NSMetadataItemContentTypeTreeKey,
+                NSMetadataItemContentTypeKey
+            )
+            query.predicate = predicate
 
-            // Use kCFAllocatorDefault for create
-            guard let query = MDQueryCreate(kCFAllocatorDefault, queryString, nil, nil) else {
-                print("Failed to create MDQuery")
-                DispatchQueue.main.async {
-                    self.isIndexing = false
-                }
-                return
-            }
-
-            // Set Search Scopes (Directories)
-            // MDQuerySetSearchScope takes an array of CFURLs
-            let scopeURLs = config.searchScopes.map { URL(fileURLWithPath: $0) as CFURL }
-            print("MetadataQueryService: Starting query with scopes: \(config.searchScopes)")
-            MDQuerySetSearchScope(query, scopeURLs as CFArray, 0)
-
-            // Set Update Handler (Batching is handled by MDQuery but we process on main or background?)
-            // MDQuerySetDispatchQueue allows us to receive callbacks on a specific queue.
-            MDQuerySetDispatchQueue(query, self.indexQueue)
-
-            // Notification observers for query phases.
-            // Using string literals for stability across Swift versions where constants might be hidden or renamed.
-            let finishName = Notification.Name("kMDQueryDidFinishGatheringNotification")
-            let updateName = Notification.Name("kMDQueryDidUpdateNotification")
-
+            // Observers
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(self.queryDidFinishGathering(_:)),
-                name: finishName,
+                name: .NSMetadataQueryDidFinishGathering,
                 object: query
             )
 
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(self.queryDidUpdate(_:)),
-                name: updateName,
+                name: .NSMetadataQueryDidUpdate,
                 object: query
             )
 
-            self.query = query
+            print(
+                "MetadataQueryService: Starting NSMetadataQuery with scopes: \(config.searchScopes)"
+            )
 
-            // Start the query
-            // Fix: Use literal 1 for kMDQueryWantsUpdates to avoid type casting issues with MDQueryOptionFlags struct
-            if !MDQueryExecute(query, 1) {
-                print("Failed to execute MDQuery")
-                DispatchQueue.main.async {
-                    self.isIndexing = false
-                }
+            // Start the query on the Main RunLoop
+            if !query.start() {
+                print("MetadataQueryService: Failed to start NSMetadataQuery")
+                self.isIndexing = false
             }
+        }
+    }
+
+    func stopIndexing() {
+        if let query = query {
+            query.stop()
+            NotificationCenter.default.removeObserver(
+                self, name: .NSMetadataQueryDidFinishGathering, object: query)
+            NotificationCenter.default.removeObserver(
+                self, name: .NSMetadataQueryDidUpdate, object: query)
+            self.query = nil
+            self.isIndexing = false
         }
     }
 
@@ -105,111 +100,120 @@ class MetadataQueryService: ObservableObject {
     func search(text: String, limit: Int = 50) -> [IndexedItem] {
         guard !text.isEmpty else { return [] }
 
-        var results: [IndexedItem] = []
+        // Filter on main thread
+        // For large datasets, this could be moved to background, but for <50k items it's usually instant.
+        let itemsToCheck = indexedItems
 
-        // Thread-safe read
-        indexQueue.sync {
-            // Filter
-            let matches = indexedItems.filter { item in
-                item.searchableName.matches(text)
-            }
-
-            // Sort (Score matching could be added here, e.g. prefix match vs substring)
-            // For now, simple length based or original order (Spotlight returns loosely sorted)
-            let sorted = matches.sorted { lhs, rhs in
-                // Prefer shorter names (exact matches)
-                if lhs.name.count != rhs.name.count {
-                    return lhs.name.count < rhs.name.count
-                }
-                // Prefer newer files
-                return lhs.lastUsed > rhs.lastUsed
-            }
-
-            results = Array(sorted.prefix(limit))
+        let matches = itemsToCheck.filter { item in
+            item.searchableName.matches(text)
         }
 
-        return results
+        // Sort
+        let sorted = matches.sorted { lhs, rhs in
+            // Prefer shorter names (exact matches)
+            if lhs.name.count != rhs.name.count {
+                return lhs.name.count < rhs.name.count
+            }
+            // Prefer newer files
+            return lhs.lastUsed > rhs.lastUsed
+        }
+
+        return Array(sorted.prefix(limit))
     }
 
     // MARK: - Query Handlers
 
     @objc private func queryDidFinishGathering(_ notification: Notification) {
-        print("MetadataQueryService: queryDidFinishGathering")
+        print("MetadataQueryService: NSMetadataQuery finished gathering")
         processQueryResults(isInitial: true)
-        DispatchQueue.main.async {
-            self.isIndexing = false
-        }
+        isIndexing = false
     }
 
     @objc private func queryDidUpdate(_ notification: Notification) {
+        // print("MetadataQueryService: NSMetadataQuery updated results")
         processQueryResults(isInitial: false)
     }
 
     private func processQueryResults(isInitial: Bool) {
-        guard let query = self.query else { return }
+        guard let query = query else { return }
 
-        let count = MDQueryGetResultCount(query)
-        print("MetadataQueryService: MDQuery returned \(count) raw items")
+        // Pause live updates
+        query.disableUpdates()
 
-        var newItems: [IndexedItem] = []
-        newItems.reserveCapacity(count)
+        // Capture results immediately on main thread to avoid mutation issues
+        let results = query.results as? [NSMetadataItem] ?? []
 
-        // Prepare exclusion checks
-        let excludedPaths = searchConfig.excludedPaths
-        let excludedNames = searchConfig.excludedNames
+        // Resume updates immediately so we don't block the query for long
+        query.enableUpdates()
 
-        for i in 0..<count {
-            guard let rawPtr = MDQueryGetResultAtIndex(query, i) else { continue }
-            let item = Unmanaged<MDItem>.fromOpaque(rawPtr).takeUnretainedValue()
+        // Offload processing to background
+        processingQueue.async { [weak self] in
+            guard let self = self else { return }
 
-            // Get Path
-            guard let path = MDItemCopyAttribute(item, kMDItemPath) as? String else { continue }
+            let count = results.count
+            var newItems: [IndexedItem] = []
+            newItems.reserveCapacity(count)
 
-            // --- High Performance Filtering ---
+            // Prepare exclusion checks
+            let excludedPaths = self.searchConfig.excludedPaths
+            let excludedNames = self.searchConfig.excludedNames
+            let excludedNamesSet = Set(excludedNames)
 
-            // 1. Path Exclusion (e.g. inside .git or node_modules)
-            let pathComponents = path.components(separatedBy: "/")
+            // Iterate results
+            for item in results {
+                // Get Path
+                guard let path = item.value(forAttribute: NSMetadataItemPathKey) as? String else {
+                    continue
+                }
 
-            // Optimization: Quick check if any excluded name exists in path
-            let hasExcludedName = !Set(pathComponents).isDisjoint(with: excludedNames)
-            if hasExcludedName { continue }
+                // --- High Performance Filtering ---
 
-            // 2. Exact Path Exclusion
-            if excludedPaths.contains(where: { path.hasPrefix($0) }) { continue }
+                // 1. Path Exclusion (e.g. inside .git or node_modules)
+                let pathComponents = path.components(separatedBy: "/")
 
-            // --- Extraction ---
+                // Optimization: Quick check if any excluded name exists in path
+                if !excludedNamesSet.isDisjoint(with: pathComponents) { continue }
 
-            let name =
-                MDItemCopyAttribute(item, kMDItemDisplayName) as? String
-                ?? (path as NSString).lastPathComponent
-            let date = MDItemCopyAttribute(item, kMDItemContentModificationDate) as? Date ?? Date()
+                // 2. Exact Path Exclusion
+                if !excludedPaths.isEmpty {
+                    if excludedPaths.contains(where: { path.hasPrefix($0) }) { continue }
+                }
 
-            // Check if directory
-            let contentType = MDItemCopyAttribute(item, kMDItemContentType) as? String
-            let isDirectory =
-                (contentType == "public.folder" || contentType == "com.apple.mount-point")
+                // --- Extraction ---
+                let name =
+                    item.value(forAttribute: NSMetadataItemFSNameKey) as? String
+                    ?? (path as NSString).lastPathComponent
+                let date =
+                    item.value(forAttribute: NSMetadataItemContentModificationDateKey) as? Date
+                    ?? Date()
 
-            let cachedItem = IndexedItem(
-                id: UUID(),
-                name: name,
-                path: path,
-                lastUsed: date,
-                isDirectory: isDirectory,
-                searchableName: CachedSearchableString(name)
-            )
+                // Check if directory
+                let contentType = item.value(forAttribute: NSMetadataItemContentTypeKey) as? String
+                let isDirectory =
+                    (contentType == "public.folder" || contentType == "com.apple.mount-point")
 
-            newItems.append(cachedItem)
-        }
+                let cachedItem = IndexedItem(
+                    id: UUID(),
+                    name: name,
+                    path: path,
+                    lastUsed: date,
+                    isDirectory: isDirectory,
+                    searchableName: CachedSearchableString(name)
+                )
 
-        // Update State
-        DispatchQueue.main.async { [weak self] in
-            self?.indexedItems = newItems
-            self?.indexedItemCount = newItems.count
-            if isInitial {
-                print(
-                    "MetadataQueryService: Initial index complete. Total items: \(newItems.count)")
-            } else {
-                print("MetadataQueryService: Index updated. Total items: \(newItems.count)")
+                newItems.append(cachedItem)
+            }
+
+            // Update State on Main Thread
+            DispatchQueue.main.async {
+                self.indexedItems = newItems
+                self.indexedItemCount = newItems.count
+
+                if isInitial {
+                    print(
+                        "MetadataQueryService: Initial index complete. Total filtered items: \(newItems.count)"
+                    )
+                }
             }
         }
     }
