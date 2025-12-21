@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 /// A high-performance NSTextField wrapper that doesn't block on input
-/// Key difference from SwiftUI TextField: text changes are handled synchronously
-/// without triggering SwiftUI's view update cycle
+/// Key optimization: Decouple text input from search execution
+/// Input is NEVER blocked - search runs on next RunLoop iteration
 struct SearchTextField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
@@ -41,6 +41,7 @@ struct SearchTextField: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: SearchTextField
+        private var pendingSearchWorkItem: DispatchWorkItem?
 
         init(_ parent: SearchTextField) {
             self.parent = parent
@@ -50,11 +51,25 @@ struct SearchTextField: NSViewRepresentable {
             guard let textField = obj.object as? NSTextField else { return }
             let newText = textField.stringValue
 
-            // Update binding
+            // Cancel any pending search
+            pendingSearchWorkItem?.cancel()
+
+            // Update binding immediately (this is fast)
             parent.text = newText
 
-            // Call change handler immediately (synchronous, no debounce)
-            parent.onTextChange?(newText)
+            // Schedule search on next RunLoop iteration
+            // This allows the text field to process the next keystroke first
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.parent.onTextChange?(newText)
+            }
+            pendingSearchWorkItem = workItem
+
+            // Use .common mode to ensure it runs even during event tracking
+            RunLoop.main.perform {
+                if !workItem.isCancelled {
+                    workItem.perform()
+                }
+            }
         }
 
         func control(
@@ -66,17 +81,5 @@ struct SearchTextField: NSViewRepresentable {
             }
             return false
         }
-    }
-}
-
-/// Focus management for SearchTextField
-struct SearchTextFieldFocusModifier: ViewModifier {
-    @Binding var isFocused: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear {
-                isFocused = true
-            }
     }
 }
