@@ -99,18 +99,6 @@ class MetadataQueryService: ObservableObject {
 
     // MARK: - Search Logic
 
-    /// Match type for sorting priority
-    private enum MatchType: Int, Comparable {
-        case exact = 0  // 精确匹配 (最高优先级)
-        case prefix = 1  // 前缀匹配
-        case contains = 2  // 包含匹配
-        case pinyin = 3  // 拼音匹配 (最低优先级)
-
-        static func < (lhs: MatchType, rhs: MatchType) -> Bool {
-            return lhs.rawValue < rhs.rawValue
-        }
-    }
-
     /// Synchronous search for immediate results - called on every keystroke
     /// This must be EXTREMELY fast (< 1ms) to not block typing
     /// HapiGo-style: pure in-memory query, no I/O, no thread switching
@@ -123,23 +111,13 @@ class MetadataQueryService: ObservableObject {
 
         // 1. Search Apps first (usually small, ~100-500 items)
         // Use tuple to track match type for sorting
-        var matchedApps: [(item: IndexedItem, matchType: MatchType)] = []
+        var matchedApps: [(item: IndexedItem, matchType: IndexedItem.MatchType)] = []
         matchedApps.reserveCapacity(10)
 
         for app in appsIndex {
-            // Check exact match first (highest priority)
-            if app.lowerName == lowerQuery {
-                matchedApps.append((app, .exact))
-                continue
-            }
-            // Ultra-fast path: prefix match on lowercase name (pre-computed)
-            if app.lowerName.hasPrefix(lowerQuery) {
-                matchedApps.append((app, .prefix))
-                continue
-            }
-            // Fast path: contains match
-            if app.lowerName.contains(lowerQuery) {
-                matchedApps.append((app, .contains))
+            // Check display name and filename
+            if let matchType = app.matchesQuery(lowerQuery) {
+                matchedApps.append((app, matchType))
                 continue
             }
             // Pinyin match: only if query is ASCII (user typing pinyin)
@@ -158,25 +136,15 @@ class MetadataQueryService: ObservableObject {
         }
 
         // 2. Search Files (limit iterations for speed)
-        var matchedFiles: [(item: IndexedItem, matchType: MatchType)] = []
+        var matchedFiles: [(item: IndexedItem, matchType: IndexedItem.MatchType)] = []
         matchedFiles.reserveCapacity(20)
 
         let maxFileIterations = min(filesIndex.count, 5000)  // Cap iterations
         for i in 0..<maxFileIterations {
             let file = filesIndex[i]
 
-            if file.lowerName == lowerQuery {
-                matchedFiles.append((file, .exact))
-                if matchedFiles.count >= 20 { break }
-                continue
-            }
-            if file.lowerName.hasPrefix(lowerQuery) {
-                matchedFiles.append((file, .prefix))
-                if matchedFiles.count >= 20 { break }
-                continue
-            }
-            if file.lowerName.contains(lowerQuery) {
-                matchedFiles.append((file, .contains))
+            if let matchType = file.matchesQuery(lowerQuery) {
+                matchedFiles.append((file, matchType))
                 if matchedFiles.count >= 20 { break }
                 continue
             }
@@ -234,7 +202,7 @@ class MetadataQueryService: ObservableObject {
             if isCancelled() { return }
 
             // 1. Apps Search (Batch processing)
-            var matchedApps: [(item: IndexedItem, matchType: MatchType)] = []
+            var matchedApps: [(item: IndexedItem, matchType: IndexedItem.MatchType)] = []
             let appChunkSize = 200
 
             for i in stride(from: 0, to: apps.count, by: appChunkSize) {
@@ -244,16 +212,8 @@ class MetadataQueryService: ObservableObject {
                 let chunk = apps[i..<end]
 
                 for app in chunk {
-                    if app.lowerName == lowerQuery {
-                        matchedApps.append((app, .exact))
-                        continue
-                    }
-                    if app.lowerName.hasPrefix(lowerQuery) {
-                        matchedApps.append((app, .prefix))
-                        continue
-                    }
-                    if app.lowerName.contains(lowerQuery) {
-                        matchedApps.append((app, .contains))
+                    if let matchType = app.matchesQuery(lowerQuery) {
+                        matchedApps.append((app, matchType))
                         continue
                     }
                     if queryIsAscii && app.matchesPinyin(lowerQuery) {
@@ -275,7 +235,7 @@ class MetadataQueryService: ObservableObject {
             if isCancelled() { return }
 
             // 2. Files Search (Batch processing)
-            var matchedFiles: [(item: IndexedItem, matchType: MatchType)] = []
+            var matchedFiles: [(item: IndexedItem, matchType: IndexedItem.MatchType)] = []
             let fileChunkSize = 1000  // Process files in larger chunks
 
             for i in stride(from: 0, to: files.count, by: fileChunkSize) {
@@ -285,16 +245,8 @@ class MetadataQueryService: ObservableObject {
                 let chunk = files[i..<end]
 
                 for file in chunk {
-                    if file.lowerName == lowerQuery {
-                        matchedFiles.append((file, .exact))
-                        continue
-                    }
-                    if file.lowerName.hasPrefix(lowerQuery) {
-                        matchedFiles.append((file, .prefix))
-                        continue
-                    }
-                    if file.lowerName.contains(lowerQuery) {
-                        matchedFiles.append((file, .contains))
+                    if let matchType = file.matchesQuery(lowerQuery) {
+                        matchedFiles.append((file, matchType))
                         continue
                     }
                     if queryIsAscii && file.matchesPinyin(lowerQuery) {
@@ -466,10 +418,12 @@ class MetadataQueryService: ObservableObject {
 
 /// Changed from struct to final class to avoid Copy-On-Write overhead during search filtering
 /// Now includes pre-computed pinyin fields for fast Chinese input matching
+/// Also includes lowerFileName to support searching by actual filename (e.g., "Terminal" for "终端")
 final class IndexedItem: Identifiable {
     let id = UUID()
-    let name: String
-    let lowerName: String
+    let name: String  // Display name (localized, e.g., "终端")
+    let lowerName: String  // Lowercase display name for search
+    let lowerFileName: String  // Lowercase actual filename for search (e.g., "terminal.app")
     let path: String
     let lastUsed: Date
     let isDirectory: Bool
@@ -525,6 +479,11 @@ final class IndexedItem: Identifiable {
         self.isDirectory = isDirectory
         self.isApp = isApp
 
+        // Extract and store lowercase filename from path
+        // e.g., "/System/Applications/Utilities/Terminal.app" -> "terminal.app"
+        let fileName = (path as NSString).lastPathComponent
+        self.lowerFileName = fileName.lowercased()
+
         // Pre-compute pinyin only for names with Chinese characters
         // This is done once during indexing, not during each search
         if name.hasMultiByteCharacters {
@@ -536,6 +495,35 @@ final class IndexedItem: Identifiable {
             self.pinyinFull = nil
             self.pinyinAcronym = nil
             self.hasPinyin = false
+        }
+    }
+
+    /// Check if this item matches the query (display name or filename)
+    /// Returns the match type if matched, nil otherwise
+    @inline(__always)
+    func matchesQuery(_ lowerQuery: String) -> MatchType? {
+        // Check display name first
+        if lowerName == lowerQuery || lowerFileName == lowerQuery {
+            return .exact
+        }
+        if lowerName.hasPrefix(lowerQuery) || lowerFileName.hasPrefix(lowerQuery) {
+            return .prefix
+        }
+        if lowerName.contains(lowerQuery) || lowerFileName.contains(lowerQuery) {
+            return .contains
+        }
+        return nil
+    }
+
+    /// Match type for sorting priority (moved here for visibility)
+    enum MatchType: Int, Comparable {
+        case exact = 0  // 精确匹配 (最高优先级)
+        case prefix = 1  // 前缀匹配
+        case contains = 2  // 包含匹配
+        case pinyin = 3  // 拼音匹配 (最低优先级)
+
+        static func < (lhs: MatchType, rhs: MatchType) -> Bool {
+            return lhs.rawValue < rhs.rawValue
         }
     }
 
