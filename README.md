@@ -10,7 +10,7 @@ TODO LIST:
     ps: 启动时一次性索引所有文件
         之后不再监听文件系统变化
         如果用户安装了新应用，需要重启 LaunchX 才能搜索到 --- TODO, 这个看看到时候能不能优化一下
-- [ ] high - 授权逻辑完善，打开文件操作
+- [x] high - 授权逻辑完善，打开文件操作
 - [ ] low - Add support for custom icons
 - [x] low - Remove icon visible in dock
 - [ ] 搜索面板分层展示，app、文件夹、文件

@@ -209,7 +209,20 @@ class SearchPanelViewController: NSViewController {
     private func updateWindowHeight(expanded: Bool) {
         guard let window = view.window else { return }
 
-        let targetHeight: CGFloat = expanded ? 500 : 80
+        // Read user's default window mode preference
+        let defaultWindowMode =
+            UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "simple"
+
+        // If user prefers "full" mode, always show expanded view when there's a query
+        // If "simple" mode, only expand when there are results
+        let shouldExpand: Bool
+        if defaultWindowMode == "full" {
+            shouldExpand = expanded  // Expand whenever there's a query
+        } else {
+            shouldExpand = expanded && !results.isEmpty  // Simple mode: only expand with results
+        }
+
+        let targetHeight: CGFloat = shouldExpand ? 500 : 80
         let currentFrame = window.frame
 
         guard abs(currentFrame.height - targetHeight) > 1 else { return }

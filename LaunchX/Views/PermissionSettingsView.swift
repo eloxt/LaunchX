@@ -31,12 +31,6 @@ struct PermissionSettingsView: View {
                     isGranted: permissionService.isFullDiskAccessGranted,
                     action: { permissionService.requestFullDiskAccess() }
                 )
-
-                PermissionBadge(
-                    title: "Automation",
-                    isGranted: permissionService.isAutomationGranted,
-                    action: { permissionService.requestAutomation() }
-                )
             }
 
             Text(
