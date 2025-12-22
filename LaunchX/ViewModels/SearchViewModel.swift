@@ -61,11 +61,19 @@ class SearchViewModel: ObservableObject {
         let url = URL(fileURLWithPath: item.path)
         NSWorkspace.shared.open(url)
 
-        // Hide the panel after opening
-        PanelManager.shared.togglePanel()
-
-        // Clear search text
+        // Clear state BEFORE hiding panel to avoid SwiftUI updates on hidden window
         searchText = ""
         results = []
+        selectedIndex = 0
+
+        // Hide the panel after clearing state
+        PanelManager.shared.togglePanel()
+    }
+
+    /// Reset search state - call this when panel is about to be shown
+    func resetState() {
+        searchText = ""
+        results = []
+        selectedIndex = 0
     }
 }

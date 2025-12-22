@@ -3,36 +3,41 @@ import Cocoa
 class FloatingPanel: NSPanel {
 
     init(contentRect: NSRect) {
-        // Use .borderless for a completely custom appearance without system title bar
         super.init(
             contentRect: contentRect,
-            styleMask: [.borderless],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
-            defer: false)
+            defer: true)  // defer=true can reduce initial overhead
 
-        // Level: .mainMenu places it above standard windows and the dock
-        self.level = .mainMenu
+        // Level: floating is lighter than mainMenu
+        self.level = .floating
 
         // Collection Behavior:
-        // .canJoinAllSpaces: The window appears on all Mission Control spaces
-        // .fullScreenAuxiliary: Allows the window to appear over full-screen apps
-        self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // - stationary: window doesn't move during space switches (reduces CPU)
+        // - canJoinAllSpaces: appears on all spaces
+        // - fullScreenAuxiliary: can appear over fullscreen apps
+        // - ignoresCycle: not included in Cmd+` window cycling
+        self.collectionBehavior = [
+            .canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle,
+        ]
 
-        // Visuals: Transparent background so SwiftUI can control the shape (rounded corners)
+        // Visuals
         self.backgroundColor = .clear
         self.isOpaque = false
         self.hasShadow = true
 
-        // Behavior
-        self.hidesOnDeactivate = true  // Automatically hide when the user clicks outside
-        self.isReleasedWhenClosed = false  // Keep the window instance alive when closed
-        self.isMovableByWindowBackground = false  // Fixed position (usually)
+        // Behavior - all set to minimize system overhead
+        self.hidesOnDeactivate = false
+        self.isReleasedWhenClosed = false
+        self.isMovableByWindowBackground = false
+        self.animationBehavior = .none  // Disable window animations
 
-        // Center the window initially
+        // Disable window restoration
+        self.isRestorable = false
+
         self.center()
     }
 
-    // Essential: Allow a borderless window to receive keyboard input
     override var canBecomeKey: Bool {
         return true
     }

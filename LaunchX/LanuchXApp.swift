@@ -26,8 +26,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Disable automatic window tabbing (Sierra+)
         NSWindow.allowsAutomaticWindowTabbing = false
 
-        // 1. Initialize the Search Panel
-        PanelManager.shared.setup(rootView: ContentView())
+        // 1. Initialize the Search Panel (pure AppKit, no SwiftUI)
+        PanelManager.shared.setup()
 
         // 2. Setup Global HotKey (Option + Space)
         HotKeyService.shared.setupGlobalHotKey()

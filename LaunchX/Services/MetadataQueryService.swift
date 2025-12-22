@@ -22,6 +22,9 @@ class MetadataQueryService: ObservableObject {
     private var appsIndex: [IndexedItem] = []
     private var filesIndex: [IndexedItem] = []
 
+    // Track indexed paths to avoid re-processing
+    private var indexedPaths: Set<String> = []
+
     // Processing queue for search requests
     private let searchQueue = DispatchQueue(
         label: "com.launchx.metadata.search", qos: .userInteractive)
@@ -34,6 +37,12 @@ class MetadataQueryService: ObservableObject {
 
     // Cancellation token for search requests
     private var currentSearchWorkItem: DispatchWorkItem?
+
+    // Throttle updates to avoid CPU spikes
+    private var lastUpdateTime: Date = .distantPast
+    private var pendingUpdateWorkItem: DispatchWorkItem?
+    private let updateThrottleInterval: TimeInterval = 2.0  // Minimum 2 seconds between updates
+    private var initialIndexingComplete = false
 
     private init() {}
 
@@ -286,7 +295,31 @@ class MetadataQueryService: ObservableObject {
     }
 
     @objc private func queryDidUpdate(_ notification: Notification) {
-        processQueryResults(isInitial: false)
+        // DISABLED: Live updates cause CPU spikes during window/space switching
+        // The initial index is sufficient for most use cases
+        // Users can restart the app to re-index if needed
+        return
+
+        // Original code kept for reference:
+        /*
+        guard initialIndexingComplete else { return }
+        pendingUpdateWorkItem?.cancel()
+        let now = Date()
+        let timeSinceLastUpdate = now.timeIntervalSince(lastUpdateTime)
+        if timeSinceLastUpdate >= updateThrottleInterval {
+            lastUpdateTime = now
+            processQueryResults(isInitial: false)
+        } else {
+            let delay = updateThrottleInterval - timeSinceLastUpdate
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                self.lastUpdateTime = Date()
+                self.processQueryResults(isInitial: false)
+            }
+            pendingUpdateWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+        }
+        */
     }
 
     private func processQueryResults(isInitial: Bool) {
@@ -302,7 +335,10 @@ class MetadataQueryService: ObservableObject {
         query.enableUpdates()
 
         if results.isEmpty {
-            if isInitial { isIndexing = false }
+            if isInitial {
+                isIndexing = false
+                initialIndexingComplete = true
+            }
             return
         }
 
@@ -311,12 +347,57 @@ class MetadataQueryService: ObservableObject {
             guard let self = self else { return }
 
             let count = results.count
+
+            // For incremental updates, only process new items
+            let existingPaths = self.indexedPaths
+            var newItems: [(NSMetadataItem, String)] = []
+
+            for item in results {
+                guard let path = item.value(forAttribute: NSMetadataItemPathKey) as? String else {
+                    continue
+                }
+                if !existingPaths.contains(path) {
+                    newItems.append((item, path))
+                }
+            }
+
+            // If this is just an update with no new items, skip processing
+            if !isInitial && newItems.isEmpty {
+                return
+            }
+
+            // For initial indexing, process all items in parallel
+            // For updates, only process new items
+            let itemsToProcess: [(item: NSMetadataItem, path: String)]
+            if isInitial {
+                itemsToProcess = results.compactMap { item -> (NSMetadataItem, String)? in
+                    guard let path = item.value(forAttribute: NSMetadataItemPathKey) as? String
+                    else {
+                        return nil
+                    }
+                    return (item, path)
+                }
+            } else {
+                itemsToProcess = newItems
+            }
+
+            let processCount = itemsToProcess.count
+            if processCount == 0 {
+                if isInitial {
+                    DispatchQueue.main.async {
+                        self.isIndexing = false
+                        self.initialIndexingComplete = true
+                    }
+                }
+                return
+            }
+
             // Use UnsafeMutablePointer for lock-free parallel writing of object references
-            let tempBuffer = UnsafeMutablePointer<IndexedItem?>.allocate(capacity: count)
-            tempBuffer.initialize(repeating: nil, count: count)
+            let tempBuffer = UnsafeMutablePointer<IndexedItem?>.allocate(capacity: processCount)
+            tempBuffer.initialize(repeating: nil, count: processCount)
 
             defer {
-                tempBuffer.deinitialize(count: count)
+                tempBuffer.deinitialize(count: processCount)
                 tempBuffer.deallocate()
             }
 
@@ -326,12 +407,8 @@ class MetadataQueryService: ObservableObject {
             let excludedNamesSet = Set(excludedNames)
 
             // Parallel Loop
-            DispatchQueue.concurrentPerform(iterations: count) { i in
-                let item = results[i]
-
-                guard let path = item.value(forAttribute: NSMetadataItemPathKey) as? String else {
-                    return
-                }
+            DispatchQueue.concurrentPerform(iterations: processCount) { i in
+                let (item, path) = itemsToProcess[i]
 
                 let pathComponents = path.components(separatedBy: "/")
 
@@ -373,11 +450,16 @@ class MetadataQueryService: ObservableObject {
             // Collect results
             var newApps: [IndexedItem] = []
             var newFiles: [IndexedItem] = []
-            newApps.reserveCapacity(500)
-            newFiles.reserveCapacity(count)
+            var newPaths: Set<String> = []
 
-            for i in 0..<count {
+            if isInitial {
+                newApps.reserveCapacity(500)
+                newFiles.reserveCapacity(processCount)
+            }
+
+            for i in 0..<processCount {
                 if let item = tempBuffer[i] {
+                    newPaths.insert(item.path)
                     if item.isApp {
                         newApps.append(item)
                     } else {
@@ -387,27 +469,55 @@ class MetadataQueryService: ObservableObject {
             }
 
             // Initial sort for Apps by name length (shorter names are usually more relevant)
-            newApps.sort { $0.name.count < $1.name.count }
+            if isInitial {
+                newApps.sort { $0.name.count < $1.name.count }
+            }
 
             // Update State on Main Thread
             DispatchQueue.main.async {
-                self.appsIndex = newApps
-                self.filesIndex = newFiles
-                self.indexedItemCount = newApps.count + newFiles.count
+                if isInitial {
+                    // Full replacement for initial indexing
+                    self.appsIndex = newApps
+                    self.filesIndex = newFiles
+                    self.indexedPaths = newPaths
+                } else {
+                    // Append new items for incremental updates
+                    self.appsIndex.append(contentsOf: newApps)
+                    self.filesIndex.append(contentsOf: newFiles)
+                    self.indexedPaths.formUnion(newPaths)
+
+                    // Re-sort apps if we added new ones
+                    if !newApps.isEmpty {
+                        self.appsIndex.sort { $0.name.count < $1.name.count }
+                    }
+                }
+
+                self.indexedItemCount = self.appsIndex.count + self.filesIndex.count
                 self.isIndexing = false
 
                 if isInitial {
+                    self.initialIndexingComplete = true
                     print(
-                        "MetadataQueryService: Indexing complete. Apps: \(newApps.count), Files: \(newFiles.count)"
+                        "MetadataQueryService: Indexing complete. Apps: \(self.appsIndex.count), Files: \(self.filesIndex.count)"
                     )
 
+                    // IMPORTANT: Stop the query after initial indexing to prevent CPU spikes
+                    // Live updates are not worth the CPU cost during window/space switching
+                    self.query?.stop()
+                    print("MetadataQueryService: Query stopped to save CPU")
+
                     // Pre-load icons for apps in background (apps are most frequently accessed)
+                    let appsToPreload = self.appsIndex
                     DispatchQueue.global(qos: .utility).async {
-                        for app in newApps {
+                        for app in appsToPreload {
                             app.preloadIcon()
                         }
                         print("MetadataQueryService: App icons preloaded")
                     }
+                } else if !newApps.isEmpty || !newFiles.isEmpty {
+                    print(
+                        "MetadataQueryService: Incremental update. Added \(newApps.count) apps, \(newFiles.count) files"
+                    )
                 }
             }
         }
