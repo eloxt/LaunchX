@@ -94,10 +94,12 @@ struct SidebarItem: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .contentShape(Rectangle())
             .background(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
+        .focusable(false)
         .padding(.horizontal, 8)
     }
 }
