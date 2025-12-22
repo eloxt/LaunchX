@@ -670,38 +670,48 @@ struct AppExclusionsSettingsView: View {
             .cornerRadius(8)
 
             // APP 列表
-            List {
-                ForEach(filteredApps) { app in
-                    HStack(spacing: 12) {
-                        Image(nsImage: app.icon)
-                            .resizable()
-                            .frame(width: 24, height: 24)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(filteredApps) { app in
+                        HStack(spacing: 12) {
+                            Image(nsImage: app.icon)
+                                .resizable()
+                                .frame(width: 24, height: 24)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(app.name)
-                                .font(.system(size: 13))
-                            Text(app.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(app.name)
+                                    .font(.system(size: 13))
+                                Text(
+                                    app.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+                                )
                                 .font(.system(size: 10))
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
-                        }
+                            }
 
-                        Spacer()
+                            Spacer()
 
-                        Toggle(
-                            "",
-                            isOn: Binding(
-                                get: { !viewModel.isAppExcluded(app.path) },
-                                set: { _ in viewModel.toggleAppExclusion(app.path) }
+                            Toggle(
+                                "",
+                                isOn: Binding(
+                                    get: { !viewModel.isAppExcluded(app.path) },
+                                    set: { _ in viewModel.toggleAppExclusion(app.path) }
+                                )
                             )
-                        )
-                        .toggleStyle(.checkbox)
-                        .labelsHidden()
+                            .toggleStyle(.checkbox)
+                            .labelsHidden()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+
+                        Divider()
+                            .padding(.leading, 48)
                     }
-                    .padding(.vertical, 4)
                 }
             }
-            .listStyle(.bordered)
+            .scrollIndicators(.hidden)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .cornerRadius(8)
 
             // 提示
             HStack {
