@@ -44,12 +44,21 @@ struct SearchSettingsView: View {
                     .padding(.bottom, 8)
 
                 SidebarItem(
-                    icon: "eye.slash",
-                    title: "文档搜索排除",
+                    icon: "doc.badge.ellipsis",
+                    title: "文档排除",
                     color: .purple,
                     isSelected: viewModel.selectedSection == .exclusions
                 ) {
                     viewModel.selectedSection = .exclusions
+                }
+
+                SidebarItem(
+                    icon: "app.badge.checkmark",
+                    title: "应用排除",
+                    color: .red,
+                    isSelected: viewModel.selectedSection == .appExclusions
+                ) {
+                    viewModel.selectedSection = .appExclusions
                 }
 
                 Spacer()
@@ -66,6 +75,8 @@ struct SearchSettingsView: View {
                     AppSearchSettingsView(viewModel: viewModel)
                 case .exclusions:
                     ExclusionsSettingsView(viewModel: viewModel)
+                case .appExclusions:
+                    AppExclusionsSettingsView(viewModel: viewModel)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -319,6 +330,7 @@ class SearchSettingsViewModel: ObservableObject {
         case documentSearch
         case appSearch
         case exclusions
+        case appExclusions
     }
 
     @Published var selectedSection: Section = .documentSearch
@@ -327,12 +339,26 @@ class SearchSettingsViewModel: ObservableObject {
     @Published var excludedPaths: [String] = []
     @Published var excludedExtensions: [String] = []
     @Published var excludedFolderNames: [String] = []
+    @Published var excludedApps: Set<String> = []  // 存储被排除的 APP 路径
+    @Published var allApps: [AppInfo] = []  // 所有已索引的 APP
 
     private var config: SearchConfig
+
+    struct AppInfo: Identifiable, Comparable {
+        let id: String  // 路径作为唯一标识
+        let name: String
+        let path: String
+        let icon: NSImage
+
+        static func < (lhs: AppInfo, rhs: AppInfo) -> Bool {
+            lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
 
     init() {
         self.config = SearchConfig.load()
         loadFromConfig()
+        loadAllApps()
     }
 
     private func loadFromConfig() {
@@ -341,6 +367,54 @@ class SearchSettingsViewModel: ObservableObject {
         excludedPaths = config.excludedPaths
         excludedExtensions = config.excludedExtensions
         excludedFolderNames = config.excludedFolderNames
+        excludedApps = config.excludedApps
+    }
+
+    private func loadAllApps() {
+        // 从 MetadataQueryService 获取所有已索引的 APP
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var apps: [AppInfo] = []
+
+            // 扫描应用目录
+            let appDirectories = [
+                "/Applications",
+                "/System/Applications",
+                "/System/Applications/Utilities",
+                NSHomeDirectory() + "/Applications",
+            ]
+
+            for directory in appDirectories {
+                let url = URL(fileURLWithPath: directory)
+                guard
+                    let contents = try? FileManager.default.contentsOfDirectory(
+                        at: url,
+                        includingPropertiesForKeys: [.isApplicationKey],
+                        options: [.skipsHiddenFiles]
+                    )
+                else { continue }
+
+                for appURL in contents {
+                    if appURL.pathExtension == "app" {
+                        let name = appURL.deletingPathExtension().lastPathComponent
+                        let icon = NSWorkspace.shared.icon(forFile: appURL.path)
+                        icon.size = NSSize(width: 24, height: 24)
+                        apps.append(
+                            AppInfo(
+                                id: appURL.path,
+                                name: name,
+                                path: appURL.path,
+                                icon: icon
+                            ))
+                    }
+                }
+            }
+
+            apps.sort()
+
+            DispatchQueue.main.async {
+                self?.allApps = apps
+            }
+        }
     }
 
     private func saveConfig() {
@@ -349,6 +423,7 @@ class SearchSettingsViewModel: ObservableObject {
         config.excludedPaths = excludedPaths
         config.excludedExtensions = excludedExtensions
         config.excludedFolderNames = excludedFolderNames
+        config.excludedApps = excludedApps
         config.save()
 
         // Notify MetadataQueryService to reload
@@ -530,6 +605,114 @@ class SearchSettingsViewModel: ObservableObject {
     func removeExcludedFolderName(_ name: String) {
         excludedFolderNames.removeAll { $0 == name }
         saveConfig()
+    }
+
+    // MARK: - App Exclusions
+
+    func toggleAppExclusion(_ appPath: String) {
+        if excludedApps.contains(appPath) {
+            excludedApps.remove(appPath)
+        } else {
+            excludedApps.insert(appPath)
+        }
+        saveConfig()
+    }
+
+    func isAppExcluded(_ appPath: String) -> Bool {
+        excludedApps.contains(appPath)
+    }
+}
+
+// MARK: - App Exclusions Settings View
+
+struct AppExclusionsSettingsView: View {
+    @ObservedObject var viewModel: SearchSettingsViewModel
+    @State private var searchText = ""
+
+    var filteredApps: [SearchSettingsViewModel.AppInfo] {
+        if searchText.isEmpty {
+            return viewModel.allApps
+        }
+        return viewModel.allApps.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("应用搜索排除")
+                    .font(.headline)
+
+                Spacer()
+
+                Text("\(viewModel.excludedApps.count) 个已排除")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            // 搜索框
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                TextField("搜索应用...", text: $searchText)
+                    .textFieldStyle(.plain)
+                if !searchText.isEmpty {
+                    Button(action: { searchText = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(8)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .cornerRadius(8)
+
+            // APP 列表
+            List {
+                ForEach(filteredApps) { app in
+                    HStack(spacing: 12) {
+                        Image(nsImage: app.icon)
+                            .resizable()
+                            .frame(width: 24, height: 24)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(app.name)
+                                .font(.system(size: 13))
+                            Text(app.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+
+                        Toggle(
+                            "",
+                            isOn: Binding(
+                                get: { !viewModel.isAppExcluded(app.path) },
+                                set: { _ in viewModel.toggleAppExclusion(app.path) }
+                            )
+                        )
+                        .toggleStyle(.checkbox)
+                        .labelsHidden()
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .listStyle(.bordered)
+
+            // 提示
+            HStack {
+                Image(systemName: "info.circle")
+                    .foregroundColor(.blue)
+                Text("取消勾选的应用将不会出现在搜索结果中。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(20)
     }
 }
 

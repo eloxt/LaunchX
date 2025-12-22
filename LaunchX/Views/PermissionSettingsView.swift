@@ -23,9 +23,7 @@ struct PermissionSettingsView: View {
                     isGranted: permissionService.isScreenRecordingGranted,
                     action: { permissionService.requestScreenRecording() }
                 )
-            }
 
-            HStack(spacing: 12) {
                 PermissionBadge(
                     title: "Full Disk Access",
                     isGranted: permissionService.isFullDiskAccessGranted,

@@ -41,18 +41,23 @@ struct SearchConfig: Codable, Equatable {
     /// Folder names to exclude globally (e.g., node_modules)
     var excludedFolderNames: [String]
 
+    /// App paths to exclude from search results
+    var excludedApps: Set<String>
+
     init(
         documentScopes: [String] = SearchConfig.defaultDocumentScopes,
         appScopes: [String] = SearchConfig.defaultAppScopes,
         excludedPaths: [String] = SearchConfig.defaultExcludedPaths,
         excludedExtensions: [String] = SearchConfig.defaultExcludedExtensions,
-        excludedFolderNames: [String] = SearchConfig.defaultExcludedFolderNames
+        excludedFolderNames: [String] = SearchConfig.defaultExcludedFolderNames,
+        excludedApps: Set<String> = []
     ) {
         self.documentScopes = documentScopes
         self.appScopes = appScopes
         self.excludedPaths = excludedPaths
         self.excludedExtensions = excludedExtensions
         self.excludedFolderNames = excludedFolderNames
+        self.excludedApps = excludedApps
     }
 
     /// Combined search scopes for backward compatibility

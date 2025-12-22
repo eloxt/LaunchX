@@ -154,6 +154,7 @@ class MetadataQueryService: ObservableObject {
 
         let lowerQuery = text.lowercased()
         let queryIsAscii = text.isAscii
+        let excludedApps = searchConfig.excludedApps
 
         // 1. Search Apps first (usually small, ~100-500 items)
         // Use tuple to track match type for sorting
@@ -161,6 +162,9 @@ class MetadataQueryService: ObservableObject {
         matchedApps.reserveCapacity(10)
 
         for app in appsIndex {
+            // Skip excluded apps
+            if excludedApps.contains(app.path) { continue }
+
             // Check display name and filename
             if let matchType = app.matchesQuery(lowerQuery) {
                 matchedApps.append((app, matchType))
