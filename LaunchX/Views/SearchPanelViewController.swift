@@ -168,6 +168,29 @@ class SearchPanelViewController: NSViewController {
 
     func focus() {
         view.window?.makeFirstResponder(searchField)
+
+        // 每次显示面板时刷新状态，确保设置更改立即生效
+        refreshDisplayMode()
+    }
+
+    /// 刷新显示模式（Simple/Full）
+    private func refreshDisplayMode() {
+        let defaultWindowMode =
+            UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "simple"
+
+        if searchField.stringValue.isEmpty {
+            if defaultWindowMode == "full" && !recentApps.isEmpty {
+                results = recentApps
+                isShowingRecents = true
+            } else {
+                results = []
+                isShowingRecents = false
+            }
+            selectedIndex = 0
+            tableView.reloadData()
+        }
+
+        updateVisibility()
     }
 
     func resetState() {
@@ -418,7 +441,8 @@ class SearchPanelViewController: NSViewController {
                 self?.recentApps = apps
 
                 // 如果是 Full 模式且当前没有搜索内容，显示最近应用
-                let defaultWindowMode = UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "simple"
+                let defaultWindowMode =
+                    UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "simple"
                 if defaultWindowMode == "full" && self?.searchField.stringValue.isEmpty == true {
                     self?.results = apps
                     self?.isShowingRecents = true
