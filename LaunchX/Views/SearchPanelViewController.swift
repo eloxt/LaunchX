@@ -245,17 +245,27 @@ class SearchPanelViewController: NSViewController {
     // MARK: - Keyboard Handling
 
     private func handleKeyEvent(_ event: NSEvent) -> NSEvent? {
+        // 检查输入法是否正在组合输入（如中文输入法）
+        var isComposing = false
+        if let fieldEditor = searchField.currentEditor() as? NSTextView {
+            isComposing = fieldEditor.markedRange().length > 0
+        }
+
         switch Int(event.keyCode) {
         case 125:  // Down arrow
+            if isComposing { return event }  // 让输入法处理
             moveSelectionDown()
             return nil
         case 126:  // Up arrow
+            if isComposing { return event }  // 让输入法处理
             moveSelectionUp()
             return nil
         case 53:  // Escape
+            if isComposing { return event }  // 让输入法取消
             PanelManager.shared.hidePanel()
             return nil
         case 36:  // Return
+            if isComposing { return event }  // 让输入法确认输入
             openSelected()
             return nil
         default:
@@ -277,7 +287,7 @@ class SearchPanelViewController: NSViewController {
         guard !results.isEmpty else { return }
         selectedIndex = min(selectedIndex + 1, results.count - 1)
         tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
-        tableView.scrollRowToVisible(selectedIndex)
+        scrollToKeepSelectionCentered()
         tableView.reloadData()
     }
 
@@ -285,8 +295,40 @@ class SearchPanelViewController: NSViewController {
         guard !results.isEmpty else { return }
         selectedIndex = max(selectedIndex - 1, 0)
         tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
-        tableView.scrollRowToVisible(selectedIndex)
+        scrollToKeepSelectionCentered()
         tableView.reloadData()
+    }
+
+    /// 滚动表格使选中行尽量保持在可视区域中间
+    private func scrollToKeepSelectionCentered() {
+        let visibleRect = scrollView.contentView.bounds
+        let rowRect = tableView.rect(ofRow: selectedIndex)
+
+        // 计算可视区域能显示多少行
+        let visibleRows = Int(visibleRect.height / rowHeight)
+        let middleOffset = visibleRows / 2
+
+        // 计算目标滚动位置，使选中行在中间
+        let targetRow = max(0, selectedIndex - middleOffset)
+        let targetRect = tableView.rect(ofRow: targetRow)
+
+        // 只有当选中行不在理想位置时才滚动
+        let currentTopRow = Int(visibleRect.origin.y / rowHeight)
+        let idealTopRow = max(0, selectedIndex - middleOffset)
+
+        // 如果选中行在前几行，不需要居中（保持在顶部）
+        if selectedIndex < middleOffset {
+            tableView.scrollRowToVisible(0)
+        }
+        // 如果选中行在最后几行，不需要居中（保持在底部）
+        else if selectedIndex >= results.count - middleOffset {
+            tableView.scrollRowToVisible(results.count - 1)
+        }
+        // 否则滚动使选中行居中
+        else {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetRect.origin.y))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
     }
 
     private func openSelected() {
