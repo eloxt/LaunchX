@@ -97,6 +97,7 @@ class SearchPanelViewController: NSViewController {
         tableView.dataSource = self
         tableView.selectionHighlightStyle = .none
         tableView.intercellSpacing = NSSize(width: 0, height: 0)
+        tableView.doubleAction = #selector(tableViewDoubleClicked)
 
         // Scroll view
         scrollView.documentView = tableView
@@ -463,6 +464,13 @@ class SearchPanelViewController: NSViewController {
             icon: icon,
             isDirectory: true
         )
+    }
+
+    @objc private func tableViewDoubleClicked() {
+        let clickedRow = tableView.clickedRow
+        guard clickedRow >= 0 && results.indices.contains(clickedRow) else { return }
+        selectedIndex = clickedRow
+        openSelected()
     }
 
     private func openSelected() {
