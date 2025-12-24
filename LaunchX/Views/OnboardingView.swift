@@ -131,7 +131,7 @@ struct OnboardingView: View {
             }
             .padding(.bottom, 32)
         }
-        .frame(width: 500, height: 520)
+        .frame(width: 500, height: 580)
         .background(Color(nsColor: .windowBackgroundColor))
         .alert("需要辅助功能权限", isPresented: $showAccessibilityAlert) {
             Button("去授权") {

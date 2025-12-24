@@ -39,20 +39,24 @@ struct GeneralSettingsView: View {
         Form {
             Section {
                 // 1. Launch at Login
-                Toggle("登录时打开:", isOn: $isLaunchAtLoginEnabled)
-                    .toggleStyle(CheckboxToggleStyle())
-                    .onChange(of: isLaunchAtLoginEnabled) { _, newValue in
-                        updateLaunchAtLogin(enabled: newValue)
-                    }
-                    .onAppear {
-                        checkLaunchAtLoginStatus()
-                    }
+                HStack {
+                    Text("登录时打开:")
+                    Toggle("开启", isOn: $isLaunchAtLoginEnabled)
+                        .toggleStyle(CheckboxToggleStyle())
+                        .onChange(of: isLaunchAtLoginEnabled) { _, newValue in
+                            updateLaunchAtLogin(enabled: newValue)
+                        }
+                        .onAppear {
+                            checkLaunchAtLoginStatus()
+                        }
+                    Spacer()
+                }
 
                 // 2. HotKey Configuration
                 HStack {
                     Text("启动快捷键:")
-                    Spacer()
                     HotKeyRecorderView()
+                    Spacer()
                 }
             }
 
