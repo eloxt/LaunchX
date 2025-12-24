@@ -49,6 +49,11 @@ class SearchPanelViewController: NSViewController {
         // 加载最近使用的应用
         loadRecentApps()
 
+        // Register for panel show callback to refresh recent apps
+        PanelManager.shared.onWillShow = { [weak self] in
+            self?.loadRecentApps()
+        }
+
         // Register for panel hide callback
         PanelManager.shared.onWillHide = { [weak self] in
             self?.resetState()
@@ -389,22 +394,11 @@ class SearchPanelViewController: NSViewController {
     private func loadRecentApps() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var apps: [SearchResult] = []
-
-            // 获取最近使用的应用（通过 LSCopyApplicationURLsForBundleIdentifier 或扫描常用应用）
-            let commonAppPaths = [
-                "/Applications",
-                "/System/Applications",
-            ]
-
-            // 获取最近打开的应用（通过 NSWorkspace）
-            let runningApps = NSWorkspace.shared.runningApplications
-                .filter { $0.activationPolicy == .regular }
-                .compactMap { $0.bundleURL?.path }
-
             var addedPaths = Set<String>()
 
-            // 优先添加正在运行的应用
-            for path in runningApps.prefix(8) {
+            // 1. 优先从 LRU 缓存获取最近使用的应用
+            let lruPaths = RecentAppsManager.shared.getRecentApps(limit: 8)
+            for path in lruPaths {
                 guard !addedPaths.contains(path) else { continue }
                 if let result = self?.createSearchResult(from: path) {
                     apps.append(result)
@@ -412,17 +406,17 @@ class SearchPanelViewController: NSViewController {
                 }
             }
 
-            // 如果不够，补充常用应用
+            // 2. 如果 LRU 记录不足，用默认应用补充
             if apps.count < 8 {
                 let defaultApps = [
-                    "/System/Applications/Finder.app",
-                    "/Applications/Safari.app",
-                    "/System/Applications/System Preferences.app",
+                    "/System/Library/CoreServices/Finder.app",
                     "/System/Applications/System Settings.app",
-                    "/Applications/WeChat.app",
+                    "/System/Applications/App Store.app",
                     "/System/Applications/Notes.app",
-                    "/System/Applications/Calendar.app",
+                    "/System/Volumes/Preboot/Cryptexes/App/System/Applications/Safari.app",
                     "/System/Applications/Mail.app",
+                    "/System/Applications/Calendar.app",
+                    "/System/Applications/Weather.app",
                 ]
 
                 for path in defaultApps {
@@ -477,6 +471,11 @@ class SearchPanelViewController: NSViewController {
 
         let url = URL(fileURLWithPath: item.path)
         NSWorkspace.shared.open(url)
+
+        // 记录到 LRU 缓存（仅记录 .app 应用）
+        if item.path.hasSuffix(".app") {
+            RecentAppsManager.shared.recordAppOpen(path: item.path)
+        }
 
         PanelManager.shared.hidePanel()
     }

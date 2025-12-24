@@ -7,6 +7,8 @@ class PanelManager: NSObject, NSWindowDelegate {
 
     // Callback to reset view state before hiding
     var onWillHide: (() -> Void)?
+    // Callback when panel is about to show
+    var onWillShow: (() -> Void)?
 
     private var panel: FloatingPanel!
     private var viewController: SearchPanelViewController?
@@ -69,6 +71,9 @@ class PanelManager: NSObject, NSWindowDelegate {
         guard isSetup else { return }
 
         lastShowTime = Date()
+
+        // Notify before showing
+        onWillShow?()
 
         // 保持窗口顶部位置一致（基于展开后高度计算）
         let topY = calculatePanelTopY()
