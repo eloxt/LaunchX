@@ -109,7 +109,7 @@ class SearchPanelViewController: NSViewController {
         view.addSubview(searchIcon)
 
         // Search field
-        searchField.placeholderString = "LaunchX Search..."
+        searchField.placeholderString = "搜索应用或文档..."
         searchField.isBordered = false
         searchField.backgroundColor = .clear
         searchField.focusRingType = .none
@@ -267,7 +267,7 @@ class SearchPanelViewController: NSViewController {
             ideProjects = []
             filteredIDEProjects = []
             restoreNormalModeUI()
-            searchField.placeholderString = "LaunchX Search..."
+            searchField.placeholderString = "搜索应用或文档..."
         }
 
         // 如果在文件夹打开模式，先恢复普通模式 UI
@@ -276,7 +276,7 @@ class SearchPanelViewController: NSViewController {
             currentFolder = nil
             folderOpeners = []
             restoreNormalModeUI()
-            searchField.placeholderString = "LaunchX Search..."
+            searchField.placeholderString = "搜索应用或文档..."
         }
 
         searchField.stringValue = ""
@@ -525,7 +525,7 @@ class SearchPanelViewController: NSViewController {
 
         // 恢复搜索状态
         searchField.stringValue = ""
-        searchField.placeholderString = "LaunchX Search..."
+        searchField.placeholderString = "搜索应用或文档..."
         resetState()
     }
 
@@ -630,7 +630,7 @@ class SearchPanelViewController: NSViewController {
 
         // 恢复搜索状态
         searchField.stringValue = ""
-        searchField.placeholderString = "LaunchX Search..."
+        searchField.placeholderString = "搜索应用或文档..."
         resetState()
     }
 
