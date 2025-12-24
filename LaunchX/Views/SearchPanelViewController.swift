@@ -11,6 +11,11 @@ class SearchPanelViewController: NSViewController {
     private let divider = NSBox()
     private let noResultsLabel = NSTextField(labelWithString: "No results found.")
 
+    // IDE 项目模式 UI
+    private let ideTagView = NSView()
+    private let ideIconView = NSImageView()
+    private let ideNameLabel = NSTextField(labelWithString: "")
+
     // MARK: - State
     private var results: [SearchResult] = []
     private var recentApps: [SearchResult] = []  // 最近使用的应用
@@ -18,9 +23,20 @@ class SearchPanelViewController: NSViewController {
     private let searchEngine = SearchEngine.shared
     private var isShowingRecents: Bool = false  // 是否正在显示最近使用
 
+    // IDE 项目模式状态
+    private var isInIDEProjectMode: Bool = false
+    private var currentIDEApp: SearchResult? = nil
+    private var currentIDEType: IDEType? = nil
+    private var ideProjects: [IDEProject] = []
+    private var filteredIDEProjects: [IDEProject] = []
+
     // MARK: - Constants
     private let rowHeight: CGFloat = 44
     private let headerHeight: CGFloat = 80
+
+    // 用于 IDE 模式切换的约束
+    private var searchFieldLeadingToIcon: NSLayoutConstraint?
+    private var searchFieldLeadingToTag: NSLayoutConstraint?
 
     // MARK: - Lifecycle
 
@@ -63,6 +79,23 @@ class SearchPanelViewController: NSViewController {
     // MARK: - Setup
 
     private func setupUI() {
+        // IDE Tag View (用于 IDE 项目模式)
+        ideTagView.wantsLayer = true
+        ideTagView.layer?.backgroundColor =
+            NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
+        ideTagView.layer?.cornerRadius = 6
+        ideTagView.translatesAutoresizingMaskIntoConstraints = false
+        ideTagView.isHidden = true
+        view.addSubview(ideTagView)
+
+        ideIconView.translatesAutoresizingMaskIntoConstraints = false
+        ideTagView.addSubview(ideIconView)
+
+        ideNameLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        ideNameLabel.textColor = .labelColor
+        ideNameLabel.translatesAutoresizingMaskIntoConstraints = false
+        ideTagView.addSubview(ideNameLabel)
+
         // Search icon
         searchIcon.image = NSImage(
             systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
@@ -118,14 +151,28 @@ class SearchPanelViewController: NSViewController {
 
         // Constraints
         NSLayoutConstraint.activate([
+            // IDE Tag View
+            ideTagView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            ideTagView.centerYAnchor.constraint(equalTo: view.topAnchor, constant: 40),
+            ideTagView.heightAnchor.constraint(equalToConstant: 28),
+
+            ideIconView.leadingAnchor.constraint(equalTo: ideTagView.leadingAnchor, constant: 6),
+            ideIconView.centerYAnchor.constraint(equalTo: ideTagView.centerYAnchor),
+            ideIconView.widthAnchor.constraint(equalToConstant: 18),
+            ideIconView.heightAnchor.constraint(equalToConstant: 18),
+
+            ideNameLabel.leadingAnchor.constraint(equalTo: ideIconView.trailingAnchor, constant: 6),
+            ideNameLabel.trailingAnchor.constraint(
+                equalTo: ideTagView.trailingAnchor, constant: -8),
+            ideNameLabel.centerYAnchor.constraint(equalTo: ideTagView.centerYAnchor),
+
             // Search icon
             searchIcon.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             searchIcon.centerYAnchor.constraint(equalTo: view.topAnchor, constant: 40),
             searchIcon.widthAnchor.constraint(equalToConstant: 22),
             searchIcon.heightAnchor.constraint(equalToConstant: 22),
 
-            // Search field
-            searchField.leadingAnchor.constraint(equalTo: searchIcon.trailingAnchor, constant: 12),
+            // Search field (leading 约束单独处理，用于 IDE 模式切换)
             searchField.trailingAnchor.constraint(
                 equalTo: view.trailingAnchor, constant: -20),
             searchField.centerYAnchor.constraint(equalTo: searchIcon.centerYAnchor),
@@ -146,6 +193,13 @@ class SearchPanelViewController: NSViewController {
             noResultsLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             noResultsLabel.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 20),
         ])
+
+        // 创建并保存 searchField 的 leading 约束
+        searchFieldLeadingToIcon = searchField.leadingAnchor.constraint(
+            equalTo: searchIcon.trailingAnchor, constant: 12)
+        searchFieldLeadingToTag = searchField.leadingAnchor.constraint(
+            equalTo: ideTagView.trailingAnchor, constant: 12)
+        searchFieldLeadingToIcon?.isActive = true
     }
 
     private var keyboardMonitor: Any?
@@ -200,6 +254,17 @@ class SearchPanelViewController: NSViewController {
     }
 
     func resetState() {
+        // 如果在 IDE 项目模式，先恢复普通模式 UI
+        if isInIDEProjectMode {
+            isInIDEProjectMode = false
+            currentIDEApp = nil
+            currentIDEType = nil
+            ideProjects = []
+            filteredIDEProjects = []
+            restoreNormalModeUI()
+            searchField.placeholderString = "LaunchX Search..."
+        }
+
         searchField.stringValue = ""
         selectedIndex = 0
 
@@ -317,6 +382,15 @@ class SearchPanelViewController: NSViewController {
         }
 
         switch Int(event.keyCode) {
+        case 48:  // Tab - 进入 IDE 项目模式
+            if isComposing { return event }
+            if !isInIDEProjectMode {
+                // 尝试进入 IDE 项目模式
+                if tryEnterIDEProjectMode() {
+                    return nil
+                }
+            }
+            return event
         case 125:  // Down arrow
             if isComposing { return event }  // 让输入法处理
             moveSelectionDown()
@@ -327,6 +401,11 @@ class SearchPanelViewController: NSViewController {
             return nil
         case 53:  // Escape
             if isComposing { return event }  // 让输入法取消
+            // 如果在 IDE 项目模式，先退出该模式
+            if isInIDEProjectMode {
+                exitIDEProjectMode()
+                return nil
+            }
             PanelManager.shared.hidePanel()
             return nil
         case 36:  // Return
@@ -362,6 +441,107 @@ class SearchPanelViewController: NSViewController {
         tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
         scrollToKeepSelectionCentered()
         tableView.reloadData()
+    }
+
+    // MARK: - IDE Project Mode
+
+    /// 尝试进入 IDE 项目模式
+    /// - Returns: 是否成功进入
+    private func tryEnterIDEProjectMode() -> Bool {
+        guard results.indices.contains(selectedIndex) else { return false }
+        let item = results[selectedIndex]
+
+        // 检测是否为支持的 IDE
+        guard let ideType = IDEType.detect(from: item.path) else { return false }
+
+        // 获取该 IDE 的最近项目
+        let projects = IDERecentProjectsService.shared.getRecentProjects(for: ideType, limit: 20)
+        guard !projects.isEmpty else { return false }
+
+        // 进入 IDE 项目模式
+        isInIDEProjectMode = true
+        currentIDEApp = item
+        currentIDEType = ideType
+        ideProjects = projects
+        filteredIDEProjects = projects
+
+        // 更新 UI
+        updateIDEModeUI()
+
+        // 显示项目列表
+        results = projects.map { $0.toSearchResult() }
+        selectedIndex = 0
+        searchField.stringValue = ""
+        searchField.placeholderString = "搜索项目..."
+        tableView.reloadData()
+        updateVisibility()
+
+        return true
+    }
+
+    /// 退出 IDE 项目模式
+    private func exitIDEProjectMode() {
+        isInIDEProjectMode = false
+        currentIDEApp = nil
+        currentIDEType = nil
+        ideProjects = []
+        filteredIDEProjects = []
+
+        // 恢复 UI
+        restoreNormalModeUI()
+
+        // 恢复搜索状态
+        searchField.stringValue = ""
+        searchField.placeholderString = "LaunchX Search..."
+        resetState()
+    }
+
+    /// 更新 IDE 模式 UI
+    private func updateIDEModeUI() {
+        guard let app = currentIDEApp else { return }
+
+        // 显示 IDE 标签
+        ideTagView.isHidden = false
+        ideIconView.image = app.icon
+        ideNameLabel.stringValue = app.name
+
+        // 隐藏搜索图标
+        searchIcon.isHidden = true
+
+        // 切换 searchField 的 leading 约束
+        searchFieldLeadingToIcon?.isActive = false
+        searchFieldLeadingToTag?.isActive = true
+    }
+
+    /// 恢复普通模式 UI
+    private func restoreNormalModeUI() {
+        // 隐藏 IDE 标签
+        ideTagView.isHidden = true
+
+        // 显示搜索图标
+        searchIcon.isHidden = false
+
+        // 切换 searchField 的 leading 约束
+        searchFieldLeadingToTag?.isActive = false
+        searchFieldLeadingToIcon?.isActive = true
+    }
+
+    /// IDE 项目模式下的搜索
+    private func performIDEProjectSearch(_ query: String) {
+        if query.isEmpty {
+            filteredIDEProjects = ideProjects
+        } else {
+            let lowercasedQuery = query.lowercased()
+            filteredIDEProjects = ideProjects.filter { project in
+                project.name.lowercased().contains(lowercasedQuery)
+                    || project.path.lowercased().contains(lowercasedQuery)
+            }
+        }
+
+        results = filteredIDEProjects.map { $0.toSearchResult() }
+        selectedIndex = results.isEmpty ? 0 : 0
+        tableView.reloadData()
+        updateVisibility()
     }
 
     /// 滚动表格使选中行尽量保持在可视区域中间
@@ -450,7 +630,6 @@ class SearchPanelViewController: NSViewController {
 
     /// 从路径创建 SearchResult
     private func createSearchResult(from path: String) -> SearchResult? {
-        let url = URL(fileURLWithPath: path)
         guard FileManager.default.fileExists(atPath: path) else { return nil }
 
         let name = FileManager.default.displayName(atPath: path)
@@ -477,6 +656,17 @@ class SearchPanelViewController: NSViewController {
         guard results.indices.contains(selectedIndex) else { return }
         let item = results[selectedIndex]
 
+        // IDE 项目模式：使用对应 IDE 打开项目
+        if isInIDEProjectMode, let ideApp = currentIDEApp {
+            IDERecentProjectsService.shared.openProject(
+                IDEProject(name: item.name, path: item.path, ideType: currentIDEType ?? .vscode),
+                withIDEAt: ideApp.path
+            )
+            PanelManager.shared.hidePanel()
+            return
+        }
+
+        // 普通模式：使用默认应用打开
         let url = URL(fileURLWithPath: item.path)
         NSWorkspace.shared.open(url)
 
@@ -494,6 +684,14 @@ class SearchPanelViewController: NSViewController {
 extension SearchPanelViewController: NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         let query = searchField.stringValue
+
+        // IDE 项目模式：搜索项目
+        if isInIDEProjectMode {
+            performIDEProjectSearch(query)
+            return
+        }
+
+        // 普通模式：搜索应用和文件
         performSearch(query)
     }
 }

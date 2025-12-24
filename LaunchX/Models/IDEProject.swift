@@ -1,0 +1,123 @@
+import AppKit
+import Foundation
+
+/// IDE 类型枚举
+enum IDEType: String, CaseIterable {
+    case vscode = "Visual Studio Code"
+    case zed = "Zed"
+    case jetbrainsIntelliJ = "IntelliJ IDEA"
+    case jetbrainsPyCharm = "PyCharm"
+    case jetbrainsWebStorm = "WebStorm"
+    case jetbrainsGoLand = "GoLand"
+    case jetbrainsRider = "Rider"
+    case jetbrainsClion = "CLion"
+
+    /// 应用的 bundle identifier
+    var bundleIdentifier: String {
+        switch self {
+        case .vscode: return "com.microsoft.VSCode"
+        case .zed: return "dev.zed.Zed"
+        case .jetbrainsIntelliJ: return "com.jetbrains.intellij"
+        case .jetbrainsPyCharm: return "com.jetbrains.pycharm"
+        case .jetbrainsWebStorm: return "com.jetbrains.WebStorm"
+        case .jetbrainsGoLand: return "com.jetbrains.goland"
+        case .jetbrainsRider: return "com.jetbrains.rider"
+        case .jetbrainsClion: return "com.jetbrains.CLion"
+        }
+    }
+
+    /// 是否为 JetBrains 系列
+    var isJetBrains: Bool {
+        switch self {
+        case .vscode, .zed: return false
+        default: return true
+        }
+    }
+
+    /// 从应用路径检测 IDE 类型
+    static func detect(from path: String) -> IDEType? {
+        let lowercasedPath = path.lowercased()
+
+        if lowercasedPath.contains("visual studio code") || lowercasedPath.hasSuffix("/code.app") {
+            return .vscode
+        }
+        if lowercasedPath.hasSuffix("/zed.app") {
+            return .zed
+        }
+        if lowercasedPath.contains("intellij") {
+            return .jetbrainsIntelliJ
+        }
+        if lowercasedPath.contains("pycharm") {
+            return .jetbrainsPyCharm
+        }
+        if lowercasedPath.contains("webstorm") {
+            return .jetbrainsWebStorm
+        }
+        if lowercasedPath.contains("goland") {
+            return .jetbrainsGoLand
+        }
+        if lowercasedPath.contains("rider") {
+            return .jetbrainsRider
+        }
+        if lowercasedPath.contains("clion") {
+            return .jetbrainsClion
+        }
+
+        return nil
+    }
+}
+
+/// IDE 项目数据模型
+struct IDEProject: Identifiable, Hashable {
+    let id: UUID
+    let name: String  // 项目名称（文件夹名）
+    let path: String  // 完整路径
+    let displayPath: String  // 显示路径（简化的）
+    let lastOpened: Date?  // 最后打开时间
+    let ideType: IDEType  // 所属 IDE 类型
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        path: String,
+        lastOpened: Date? = nil,
+        ideType: IDEType
+    ) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.lastOpened = lastOpened
+        self.ideType = ideType
+
+        // 生成简化的显示路径
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+        if path.hasPrefix(homeDir) {
+            let relativePath = String(path.dropFirst(homeDir.count))
+            self.displayPath = "~" + relativePath
+        } else {
+            self.displayPath = path
+        }
+    }
+
+    /// 转换为 SearchResult 用于 UI 显示
+    func toSearchResult() -> SearchResult {
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        icon.size = NSSize(width: 32, height: 32)
+
+        return SearchResult(
+            id: id,
+            name: name,
+            path: path,
+            icon: icon,
+            isDirectory: true
+        )
+    }
+
+    static func == (lhs: IDEProject, rhs: IDEProject) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+}
