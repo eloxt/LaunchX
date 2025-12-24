@@ -382,6 +382,13 @@ class SearchPanelViewController: NSViewController {
         }
 
         switch Int(event.keyCode) {
+        case 51:  // Delete - IDE 项目模式下，输入框为空时退出
+            if isComposing { return event }
+            if isInIDEProjectMode && searchField.stringValue.isEmpty {
+                exitIDEProjectMode()
+                return nil
+            }
+            return event
         case 48:  // Tab - 进入 IDE 项目模式
             if isComposing { return event }
             if !isInIDEProjectMode {
