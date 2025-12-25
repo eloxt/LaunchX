@@ -22,7 +22,7 @@ TODO LIST:
 - [ ] 剪切板
 - [ ] snippets
 - [ ] commandX
-- [ ] 别名与快捷键
+- [x] 别名与快捷键
 
 - [ ] 配置导出、导入
 - [ ] macos26 毛玻璃效果?
