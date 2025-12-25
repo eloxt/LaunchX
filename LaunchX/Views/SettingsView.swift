@@ -258,6 +258,9 @@ struct MainHotKeyRecorderPopover: View {
     @State private var previousFlags: NSEvent.ModifierFlags = []
     private let doubleTapInterval: TimeInterval = 0.3
 
+    // 冲突检测
+    @State private var conflictMessage: String?
+
     private var hasHotKey: Bool {
         hotKeyService.currentKeyCode != 0 || hotKeyService.useDoubleTapModifier
     }
@@ -278,10 +281,16 @@ struct MainHotKeyRecorderPopover: View {
             }
             .padding(.top, 8)
 
-            // 提示文字
-            Text("请输入快捷键或连续按两次修饰键...")
-                .foregroundColor(.secondary)
-                .font(.caption)
+            // 提示文字或冲突信息
+            if let conflict = conflictMessage {
+                Text("快捷键已被「\(conflict)」使用")
+                    .foregroundColor(.red)
+                    .font(.caption)
+            } else {
+                Text("请输入快捷键或连续按两次修饰键...")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+            }
 
             // 已设置快捷键时显示当前快捷键和删除按钮
             if hasHotKey {
@@ -323,10 +332,14 @@ struct MainHotKeyRecorderPopover: View {
         .padding(.bottom, 12)
         .frame(width: 280)
         .onAppear {
+            // 暂停所有快捷键，以便录制
+            hotKeyService.suspendAllHotKeys()
             startRecording()
         }
         .onDisappear {
             stopRecording()
+            // 恢复所有快捷键
+            hotKeyService.resumeAllHotKeys()
         }
     }
 
@@ -335,6 +348,7 @@ struct MainHotKeyRecorderPopover: View {
         lastModifierPressTime = nil
         lastPressedModifier = nil
         previousFlags = []
+        conflictMessage = nil
 
         // 监听按键事件（传统快捷键）
         keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
@@ -361,7 +375,15 @@ struct MainHotKeyRecorderPopover: View {
 
             let keyCode = UInt32(event.keyCode)
 
-            // 设置传统快捷键
+            // 检查冲突（排除当前主快捷键本身）
+            if let conflict = hotKeyService.checkConflict(
+                keyCode: keyCode, modifiers: modifiers, excludingMainHotKey: true)
+            {
+                conflictMessage = conflict
+                return nil
+            }
+
+            // 无冲突，设置传统快捷键
             hotKeyService.registerHotKey(keyCode: keyCode, modifiers: modifiers)
             stopRecording()
             isPresented = false

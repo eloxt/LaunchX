@@ -418,6 +418,74 @@ class HotKeyService: ObservableObject {
         customHotKeyConfigs.removeAll()
     }
 
+    // MARK: - 暂停/恢复快捷键（用于录制时）
+
+    /// 暂停所有快捷键（录制时使用）
+    func suspendAllHotKeys() {
+        // 暂停主快捷键
+        if let ref = mainHotKeyRef {
+            UnregisterEventHotKey(ref)
+            mainHotKeyRef = nil
+            print("HotKeyService: Suspended main hotkey")
+        }
+
+        // 暂停双击修饰键监听
+        stopDoubleTapMonitoring()
+
+        // 暂停所有自定义快捷键
+        for (hotKeyId, ref) in customHotKeyRefs {
+            UnregisterEventHotKey(ref)
+            print("HotKeyService: Suspended custom hotkey (ID: \(hotKeyId))")
+        }
+        // 注意：不清除 customHotKeyActions 和 customHotKeyConfigs，以便恢复时使用
+        customHotKeyRefs.removeAll()
+
+        print("HotKeyService: All hotkeys suspended")
+    }
+
+    /// 恢复所有快捷键
+    func resumeAllHotKeys() {
+        // 恢复主快捷键或双击修饰键
+        if useDoubleTapModifier {
+            startDoubleTapMonitoring()
+            print("HotKeyService: Resumed double-tap modifier")
+        } else if currentKeyCode != 0 {
+            let hotKeyID = EventHotKeyID(signature: hotKeySignature, id: mainHotKeyId)
+            RegisterEventHotKey(
+                currentKeyCode,
+                currentModifiers,
+                hotKeyID,
+                GetApplicationEventTarget(),
+                0,
+                &mainHotKeyRef
+            )
+            print("HotKeyService: Resumed main hotkey")
+        }
+
+        // 恢复所有自定义快捷键
+        let config = CustomItemsConfig.load()
+        for item in config.customItems {
+            if let openKey = item.openHotKey {
+                registerCustomHotKey(
+                    keyCode: openKey.keyCode,
+                    modifiers: openKey.modifiers,
+                    itemId: item.id,
+                    isExtension: false
+                )
+            }
+            if let extKey = item.extensionHotKey {
+                registerCustomHotKey(
+                    keyCode: extKey.keyCode,
+                    modifiers: extKey.modifiers,
+                    itemId: item.id,
+                    isExtension: true
+                )
+            }
+        }
+
+        print("HotKeyService: All hotkeys resumed")
+    }
+
     /// 从配置重新加载所有自定义快捷键
     func reloadCustomHotKeys(from config: CustomItemsConfig) {
         // 先注销所有现有的自定义快捷键
@@ -454,11 +522,15 @@ class HotKeyService: ObservableObject {
     ///   - modifiers: 修饰键
     ///   - excludingItemId: 排除的项目 ID（用于编辑时排除自身）
     /// - Returns: 冲突的描述，nil 表示无冲突
-    func checkConflict(keyCode: UInt32, modifiers: UInt32, excludingItemId: UUID? = nil) -> String?
-    {
-        // 检查与主快捷键的冲突
-        if keyCode == currentKeyCode && modifiers == currentModifiers {
-            return "打开搜索"
+    func checkConflict(
+        keyCode: UInt32, modifiers: UInt32, excludingItemId: UUID? = nil,
+        excludingMainHotKey: Bool = false
+    ) -> String? {
+        // 检查与主快捷键的冲突（除非排除）
+        if !excludingMainHotKey && keyCode == currentKeyCode && modifiers == currentModifiers
+            && !useDoubleTapModifier
+        {
+            return "启动快捷键"
         }
 
         // 检查与自定义快捷键的冲突

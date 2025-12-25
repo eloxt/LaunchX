@@ -65,10 +65,14 @@ struct HotKeyRecorderPopover: View {
         .padding(.bottom, 12)
         .frame(width: 280)
         .onAppear {
+            // 暂停所有快捷键，以便录制
+            HotKeyService.shared.suspendAllHotKeys()
             startRecording()
         }
         .onDisappear {
             stopRecording()
+            // 恢复所有快捷键
+            HotKeyService.shared.resumeAllHotKeys()
         }
     }
 
