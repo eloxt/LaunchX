@@ -40,18 +40,17 @@ struct AliasShortcutSettingsView: View {
             Divider()
 
             // 列表表头
-            HStack(spacing: 0) {
+            HStack(spacing: 12) {
                 Text("名称")
-                    .frame(width: 160, alignment: .leading)
-                Spacer().frame(width: 20)
+                    .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
                 Text("别名")
-                    .frame(width: 80, alignment: .leading)
-                Spacer()
+                    .frame(width: 60, alignment: .leading)
                 Text("打开/执行")
-                    .frame(width: 100, alignment: .center)
+                    .frame(width: 110, alignment: .center)
                 Text("进入扩展")
-                    .frame(width: 100, alignment: .center)
-                Spacer().frame(width: 40)
+                    .frame(width: 110, alignment: .center)
+                Spacer()
+                    .frame(width: 30)
             }
             .font(.caption)
             .foregroundColor(.secondary)
@@ -69,44 +68,43 @@ struct AliasShortcutSettingsView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         // 自定义分类
-                        DisclosureGroup(
-                            isExpanded: $viewModel.customExpanded,
-                            content: {
-                                ForEach(filteredItems) { item in
-                                    CustomItemRow(
-                                        item: binding(for: item),
-                                        viewModel: viewModel
-                                    )
-                                    Divider().padding(.leading, 16)
-                                }
-                            },
-                            label: {
-                                HStack {
-                                    Text("自定义")
-                                        .font(.headline)
-                                    Text("(\(viewModel.customItems.count))")
-                                        .foregroundColor(.secondary)
-                                        .font(.caption)
-                                }
-                            }
+                        SectionHeader(
+                            title: "自定义",
+                            count: viewModel.customItems.count,
+                            isExpanded: $viewModel.customExpanded
                         )
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
 
-                        Divider()
+                        if viewModel.customExpanded {
+                            ForEach(Array(filteredItems.enumerated()), id: \.element.id) {
+                                index, item in
+                                CustomItemRow(
+                                    item: binding(for: item),
+                                    viewModel: viewModel,
+                                    isEvenRow: index % 2 == 0
+                                )
+                            }
+                        }
 
                         // 系统命令（占位）
-                        placeholderSection(title: "系统命令", description: "即将推出")
-
-                        Divider()
+                        SectionHeader(
+                            title: "系统命令",
+                            count: nil,
+                            isExpanded: .constant(false)
+                        )
 
                         // 网页直达（占位）
-                        placeholderSection(title: "网页直达", description: "即将推出")
-
-                        Divider()
+                        SectionHeader(
+                            title: "网页直达",
+                            count: nil,
+                            isExpanded: .constant(false)
+                        )
 
                         // 实用工具（占位）
-                        placeholderSection(title: "实用工具", description: "即将推出")
+                        SectionHeader(
+                            title: "实用工具",
+                            count: nil,
+                            isExpanded: .constant(false)
+                        )
                     }
                 }
             }
@@ -151,27 +149,6 @@ struct AliasShortcutSettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func placeholderSection(title: String, description: String) -> some View {
-        DisclosureGroup(
-            content: {
-                HStack {
-                    Spacer()
-                    Text(description)
-                        .foregroundColor(.secondary)
-                        .font(.caption)
-                        .padding(.vertical, 20)
-                    Spacer()
-                }
-            },
-            label: {
-                Text(title)
-                    .font(.headline)
-            }
-        )
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-    }
-
     // MARK: - 辅助方法
 
     private var filteredItems: [CustomItem] {
@@ -198,36 +175,75 @@ struct AliasShortcutSettingsView: View {
     }
 }
 
+// MARK: - 分类标题组件
+
+struct SectionHeader: View {
+    let title: String
+    let count: Int?
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isExpanded.toggle()
+            }
+        }) {
+            HStack {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 12)
+
+                Text(title)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+
+                if let count = count {
+                    Text("(\(count))")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.3))
+    }
+}
+
 // MARK: - 列表行组件
 
 struct CustomItemRow: View {
     @Binding var item: CustomItem
     @ObservedObject var viewModel: AliasShortcutViewModel
+    let isEvenRow: Bool
 
     @State private var aliasText: String = ""
     @State private var showOpenHotKeyPopover = false
     @State private var showExtensionHotKeyPopover = false
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 12) {
             // 图标和名称
             HStack(spacing: 8) {
                 Image(nsImage: item.icon)
                     .resizable()
-                    .frame(width: 24, height: 24)
+                    .frame(width: 20, height: 20)
 
                 Text(item.name)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            .frame(width: 160, alignment: .leading)
-
-            Spacer().frame(width: 20)
+            .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
 
             // 别名输入
             TextField("别名", text: $aliasText)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 80)
+                .frame(width: 60)
                 .onAppear {
                     aliasText = item.alias ?? ""
                 }
@@ -237,14 +253,12 @@ struct CustomItemRow: View {
                     viewModel.updateItem(updatedItem)
                 }
 
-            Spacer()
-
             // 打开/执行快捷键
             HotKeyButton(
                 hotKey: item.openHotKey,
                 onTap: { showOpenHotKeyPopover = true }
             )
-            .frame(width: 100)
+            .frame(width: 110)
             .popover(isPresented: $showOpenHotKeyPopover) {
                 HotKeyRecorderPopover(
                     hotKey: Binding(
@@ -266,7 +280,7 @@ struct CustomItemRow: View {
                     hotKey: item.extensionHotKey,
                     onTap: { showExtensionHotKeyPopover = true }
                 )
-                .frame(width: 100)
+                .frame(width: 110)
                 .popover(isPresented: $showExtensionHotKeyPopover) {
                     HotKeyRecorderPopover(
                         hotKey: Binding(
@@ -284,7 +298,7 @@ struct CustomItemRow: View {
             } else {
                 Text("-")
                     .foregroundColor(.secondary)
-                    .frame(width: 100)
+                    .frame(width: 110)
             }
 
             // 删除按钮
@@ -293,10 +307,11 @@ struct CustomItemRow: View {
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.borderless)
-            .frame(width: 40)
+            .frame(width: 30)
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 16)
+        .background(isEvenRow ? Color.clear : Color(nsColor: .controlBackgroundColor).opacity(0.3))
         .contentShape(Rectangle())
     }
 }
