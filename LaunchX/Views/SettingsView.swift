@@ -35,7 +35,7 @@ struct SettingsView: View {
 
 struct GeneralSettingsView: View {
     // Window Mode persistence
-    @AppStorage("defaultWindowMode") private var windowModeString: String = "simple"
+    @AppStorage("defaultWindowMode") private var windowModeString: String = "full"
 
     // Launch at Login state
     @State private var isLaunchAtLoginEnabled: Bool = false
@@ -296,7 +296,7 @@ struct MainHotKeyRecorderPopover: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
-        .frame(width: 220)
+        .frame(width: 280)
         .onAppear {
             startRecording()
         }

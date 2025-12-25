@@ -319,7 +319,7 @@ class SearchPanelViewController: NSViewController {
         }
 
         let defaultWindowMode =
-            UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "simple"
+            UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "full"
 
         if searchField.stringValue.isEmpty {
             if defaultWindowMode == "full" && !recentApps.isEmpty {
@@ -362,7 +362,7 @@ class SearchPanelViewController: NSViewController {
 
         // Full 模式下显示最近使用的应用
         let defaultWindowMode =
-            UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "simple"
+            UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "full"
         if defaultWindowMode == "full" && !recentApps.isEmpty {
             results = recentApps
             isShowingRecents = true
@@ -383,7 +383,7 @@ class SearchPanelViewController: NSViewController {
 
             // Full 模式下显示最近使用的应用
             let defaultWindowMode =
-                UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "simple"
+                UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "full"
             if defaultWindowMode == "full" && !recentApps.isEmpty {
                 results = recentApps
                 isShowingRecents = true
@@ -415,7 +415,7 @@ class SearchPanelViewController: NSViewController {
         let hasQuery = !searchField.stringValue.isEmpty
         let hasResults = !results.isEmpty
         let defaultWindowMode =
-            UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "simple"
+            UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "full"
 
         divider.isHidden = !hasQuery && !isShowingRecents
         scrollView.isHidden = !hasResults
@@ -436,7 +436,7 @@ class SearchPanelViewController: NSViewController {
 
         // Read user's default window mode preference
         let defaultWindowMode =
-            UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "simple"
+            UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "full"
 
         // If user prefers "full" mode, always show expanded view when there's a query
         // If "simple" mode, only expand when there are results
@@ -828,7 +828,7 @@ class SearchPanelViewController: NSViewController {
 
                 // 如果是 Full 模式且当前没有搜索内容，显示最近应用
                 let defaultWindowMode =
-                    UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "simple"
+                    UserDefaults.standard.string(forKey: "defaultWindowMode") ?? "full"
                 if defaultWindowMode == "full" && self?.searchField.stringValue.isEmpty == true {
                     self?.results = apps
                     self?.isShowingRecents = true

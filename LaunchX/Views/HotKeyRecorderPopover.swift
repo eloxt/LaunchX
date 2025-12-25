@@ -63,7 +63,7 @@ struct HotKeyRecorderPopover: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
-        .frame(width: 220)
+        .frame(width: 280)
         .onAppear {
             startRecording()
         }
