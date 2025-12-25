@@ -498,16 +498,42 @@ class SearchPanelViewController: NSViewController {
         case 48:  // Tab - 进入 IDE 项目模式或文件夹打开模式
             if isComposing { return event }
             if !isInIDEProjectMode && !isInFolderOpenMode {
-                // 先尝试进入 IDE 项目模式
-                if tryEnterIDEProjectMode() {
+                // 检查当前选中项是否有扩展功能
+                guard results.indices.contains(selectedIndex) else {
+                    // 没有选中任何项目，忽略 Tab 键
                     return nil
                 }
-                // 再尝试进入文件夹打开模式
-                if tryEnterFolderOpenMode() {
-                    return nil
+                let item = results[selectedIndex]
+
+                // 检查是否为 IDE（有项目列表扩展）
+                if let ideType = IDEType.detect(from: item.path) {
+                    let projects = IDERecentProjectsService.shared.getRecentProjects(
+                        for: ideType, limit: 20)
+                    if !projects.isEmpty {
+                        // 进入 IDE 项目模式
+                        if tryEnterIDEProjectMode() {
+                            return nil
+                        }
+                    }
                 }
+
+                // 检查是否为文件夹（有打开方式扩展）
+                let isApp = item.path.hasSuffix(".app")
+                if item.isDirectory && !isApp {
+                    let openers = IDERecentProjectsService.shared.getAvailableFolderOpeners()
+                    if !openers.isEmpty {
+                        // 进入文件夹打开模式
+                        if tryEnterFolderOpenMode() {
+                            return nil
+                        }
+                    }
+                }
+
+                // 当前选中项没有扩展功能，忽略 Tab 键（阻止焦点切换）
+                return nil
             }
-            return event
+            // 已经在扩展模式中，忽略 Tab 键
+            return nil
         case 125:  // Down arrow
             if isComposing { return event }  // 让输入法处理
             moveSelectionDown()
