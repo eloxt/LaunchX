@@ -327,10 +327,6 @@ final class FileIndexer {
             name = url.lastPathComponent
         }
 
-        // Get the actual filename for matching (e.g., "WeChat" for WeChat.app)
-        // TODO: 后续用于支持按文件名搜索（如搜索 "wechat" 找到 "微信"）
-        _ = url.deletingPathExtension().lastPathComponent
-
         // Calculate pinyin for Chinese characters in display name
         var pinyinFull: String? = nil
         var pinyinAcronym: String? = nil
